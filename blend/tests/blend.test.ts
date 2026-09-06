@@ -7,8 +7,8 @@ import {
   afterAll
 } from "matchstick-as/assembly/index"
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
-import { handleLoanOfferTaken } from "../src/blend"
-import { createLoanOfferTakenEvent } from "./blend-utils"
+import { handleLoanOfferTaken, handleRepay } from "../src/blend"
+import { createLoanOfferTakenEvent, createRepayEvent } from "./blend-utils"
 
 const LIEN_ID = "1"
 const BORROWER = "0x00000000000000000000000000000000000000b0"
@@ -64,5 +64,52 @@ describe("handleLoanOfferTaken", () => {
 
   test("logs a LienEvent for the loan origination", () => {
     assert.entityCount("LienEvent", 1)
+  })
+})
+
+describe("handleRepay", () => {
+  beforeAll(() => {
+    let event = createLoanOfferTakenEvent(
+      Bytes.fromI32(1234567890),
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromString("1000000000000000000"),
+      BigInt.fromI32(500),
+      BigInt.fromI32(42),
+      BigInt.fromI32(86400)
+    )
+    handleLoanOfferTaken(event)
+  })
+
+  afterAll(() => {
+    clearStore()
+  })
+
+  test("marks the lien REPAID and logs a LienEvent", () => {
+    let repayEvent = createRepayEvent(
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION)
+    )
+    // newMockEvent() defaults to the same tx hash/logIndex as the seed
+    // LoanOfferTaken event; bump logIndex so the LienEvent ids don't collide.
+    repayEvent.logIndex = BigInt.fromI32(2)
+    handleRepay(repayEvent)
+
+    assert.fieldEquals("Lien", LIEN_ID, "status", "REPAID")
+    assert.entityCount("LienEvent", 2)
+  })
+
+  test("is a no-op when the lien is unknown", () => {
+    let unknownLienId = "999"
+    let repayEvent = createRepayEvent(
+      BigInt.fromString(unknownLienId),
+      Address.fromString(COLLECTION)
+    )
+    handleRepay(repayEvent)
+
+    assert.notInStore("Lien", unknownLienId)
+    assert.entityCount("Lien", 1)
   })
 })

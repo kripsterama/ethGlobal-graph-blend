@@ -1,6 +1,11 @@
 import { newMockEvent } from "matchstick-as"
 import { ethereum, Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
-import { LoanOfferTaken, Repay, Seize } from "../generated/Blend/Blend"
+import {
+  LoanOfferTaken,
+  Repay,
+  Seize,
+  StartAuction
+} from "../generated/Blend/Blend"
 
 export function createLoanOfferTakenEvent(
   offerHash: Bytes,
@@ -79,4 +84,22 @@ export function createSeizeEvent(lienId: BigInt, collection: Address): Seize {
   )
 
   return seizeEvent
+}
+
+export function createStartAuctionEvent(
+  lienId: BigInt,
+  collection: Address
+): StartAuction {
+  let startAuctionEvent = changetype<StartAuction>(newMockEvent())
+
+  startAuctionEvent.parameters = new Array()
+
+  startAuctionEvent.parameters.push(
+    new ethereum.EventParam("lienId", ethereum.Value.fromUnsignedBigInt(lienId))
+  )
+  startAuctionEvent.parameters.push(
+    new ethereum.EventParam("collection", ethereum.Value.fromAddress(collection))
+  )
+
+  return startAuctionEvent
 }

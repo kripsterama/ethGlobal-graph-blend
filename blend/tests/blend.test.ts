@@ -7,11 +7,17 @@ import {
   afterAll
 } from "matchstick-as/assembly/index"
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
-import { handleLoanOfferTaken, handleRepay, handleSeize } from "../src/blend"
+import {
+  handleLoanOfferTaken,
+  handleRepay,
+  handleSeize,
+  handleStartAuction
+} from "../src/blend"
 import {
   createLoanOfferTakenEvent,
   createRepayEvent,
-  createSeizeEvent
+  createSeizeEvent,
+  createStartAuctionEvent
 } from "./blend-utils"
 
 const LIEN_ID = "1"
@@ -159,6 +165,59 @@ describe("handleSeize", () => {
       Address.fromString(COLLECTION)
     )
     handleSeize(seizeEvent)
+
+    assert.notInStore("Lien", unknownLienId)
+    assert.entityCount("Lien", 1)
+  })
+})
+
+describe("handleStartAuction", () => {
+  beforeAll(() => {
+    let event = createLoanOfferTakenEvent(
+      Bytes.fromI32(1234567890),
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromString("1000000000000000000"),
+      BigInt.fromI32(500),
+      BigInt.fromI32(42),
+      BigInt.fromI32(86400)
+    )
+    handleLoanOfferTaken(event)
+  })
+
+  afterAll(() => {
+    clearStore()
+  })
+
+  test("marks the lien IN_AUCTION, sets auctionStartBlock, and logs a LienEvent", () => {
+    let startAuctionEvent = createStartAuctionEvent(
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION)
+    )
+    // newMockEvent() defaults to the same tx hash/logIndex as the seed
+    // LoanOfferTaken event; bump logIndex so the LienEvent ids don't collide.
+    startAuctionEvent.logIndex = BigInt.fromI32(2)
+    handleStartAuction(startAuctionEvent)
+
+    assert.fieldEquals("Lien", LIEN_ID, "status", "IN_AUCTION")
+    assert.fieldEquals(
+      "Lien",
+      LIEN_ID,
+      "auctionStartBlock",
+      startAuctionEvent.block.number.toString()
+    )
+    assert.entityCount("LienEvent", 2)
+  })
+
+  test("is a no-op when the lien is unknown", () => {
+    let unknownLienId = "999"
+    let startAuctionEvent = createStartAuctionEvent(
+      BigInt.fromString(unknownLienId),
+      Address.fromString(COLLECTION)
+    )
+    handleStartAuction(startAuctionEvent)
 
     assert.notInStore("Lien", unknownLienId)
     assert.entityCount("Lien", 1)

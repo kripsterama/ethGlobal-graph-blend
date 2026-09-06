@@ -50,10 +50,12 @@ debt(t) = loanAmount * e^(rate/10000 * years_elapsed)
 
 - **APY %** — fixed for the life of the loan (it's a loan term the lender accepted
   when making the offer; it only changes if the loan is refinanced to a new rate).
-  Derived once from `rate` (bips):
+  `rate` (bips) *is* the quoted annual rate — convert directly, don't run it
+  through an exponential transform (verified against real data: a lien with
+  `rate = 1300` is quoted as 13.00% APY, not `(e^0.13 - 1)*100 ≈ 13.88%`):
 
   ```
-  APY% = (e^(rate / 10000) - 1) * 100
+  APY% = rate / 100
   ```
 
 - **Gains to date (ETH)** — *is* time-varying, since interest keeps compounding

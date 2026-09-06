@@ -84,15 +84,20 @@ formulas — this skill just executes that use case end to end.
 
 4. **Compute the derived fields per loan**, using `interestStartTimestamp`
    (not `createdAtTimestamp` — they diverge after a refinance) as the accrual
-   basis. Interest is continuously compounded, confirmed against the actual
-   Blend contract source (`Helpers.computeCurrentDebt`):
+   basis. `rate` (bips) is itself the quoted annual rate — convert directly
+   to a percent, don't run it through an exponential transform. Debt/gains
+   growth over time, however, *is* continuously compounded (confirmed
+   against the actual Blend contract source, `Helpers.computeCurrentDebt`):
 
    ```
    loan_eth      = loanAmount / 1e18
-   apy_pct       = (e^(rate / 10000) - 1) * 100
+   apy_pct       = rate / 100                          # e.g. 1300 bips -> 13.00%
    years_elapsed = (now_unix - interestStartTimestamp) / (365 * 86400)
    gains_eth     = loan_eth * (e^(rate/10000 * years_elapsed) - 1)
-   issued_at     = human-readable UTC datetime from createdAtTimestamp
+   issued_at     = createdAtTimestamp converted to the user's local timezone
+                   (detect it from the local machine, e.g. `date +%Z` or
+                   Python's `datetime.now().astimezone().tzinfo` — don't
+                   assume UTC or hardcode a specific zone)
    ```
 
    Do this arithmetic with a real calculator (e.g. `python3 -c "import math; ..."`)

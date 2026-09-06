@@ -71,6 +71,7 @@ describe("handleLoanOfferTaken", () => {
     assert.fieldEquals("Lien", LIEN_ID, "auctionDuration", "86400")
     assert.fieldEquals("Lien", LIEN_ID, "status", "ACTIVE")
     assert.fieldEquals("Lien", LIEN_ID, "auctionStartBlock", "null")
+    assert.fieldEquals("Lien", LIEN_ID, "interestStartTimestamp", "1")
   })
 
   test("creates borrower and lender Accounts", () => {
@@ -201,9 +202,12 @@ describe("handleStartAuction", () => {
       BigInt.fromString(LIEN_ID),
       Address.fromString(COLLECTION)
     )
-    // newMockEvent() defaults to the same tx hash/logIndex as the seed
-    // LoanOfferTaken event; bump logIndex so the LienEvent ids don't collide.
+    // newMockEvent() defaults to the same tx hash/logIndex/timestamp as the
+    // seed LoanOfferTaken event; bump logIndex so the LienEvent ids don't
+    // collide, and bump timestamp to distinguish updatedAtTimestamp from
+    // interestStartTimestamp below.
     startAuctionEvent.logIndex = BigInt.fromI32(2)
+    startAuctionEvent.block.timestamp = BigInt.fromI32(200)
     handleStartAuction(startAuctionEvent)
 
     assert.fieldEquals("Lien", LIEN_ID, "status", "IN_AUCTION")
@@ -213,6 +217,11 @@ describe("handleStartAuction", () => {
       "auctionStartBlock",
       startAuctionEvent.block.number.toString()
     )
+    assert.fieldEquals("Lien", LIEN_ID, "updatedAtTimestamp", "200")
+    // The contract leaves lien.startTime untouched when an auction starts
+    // (interest keeps accruing against the original terms) — this must
+    // still read the LoanOfferTaken timestamp, not the StartAuction one.
+    assert.fieldEquals("Lien", LIEN_ID, "interestStartTimestamp", "1")
     assert.entityCount("LienEvent", 2)
   })
 
@@ -267,9 +276,11 @@ describe("handleRefinance", () => {
       BigInt.fromI32(750),
       BigInt.fromI32(172800)
     )
-    // newMockEvent() defaults to the same tx hash/logIndex as the seed
-    // events; bump logIndex so the LienEvent ids don't collide.
+    // newMockEvent() defaults to the same tx hash/logIndex/timestamp as the
+    // seed events; bump logIndex so the LienEvent ids don't collide, and
+    // bump timestamp to prove interestStartTimestamp actually resets.
     refinanceEvent.logIndex = BigInt.fromI32(3)
+    refinanceEvent.block.timestamp = BigInt.fromI32(500)
     handleRefinance(refinanceEvent)
 
     assert.fieldEquals("Lien", LIEN_ID, "lender", NEW_LENDER)
@@ -278,6 +289,9 @@ describe("handleRefinance", () => {
     assert.fieldEquals("Lien", LIEN_ID, "auctionDuration", "172800")
     assert.fieldEquals("Lien", LIEN_ID, "status", "ACTIVE")
     assert.fieldEquals("Lien", LIEN_ID, "auctionStartBlock", "null")
+    // Refinance pays off the old loan and starts a fresh one — the interest
+    // clock must reset to this event's timestamp, not stay at origination.
+    assert.fieldEquals("Lien", LIEN_ID, "interestStartTimestamp", "500")
     assert.entityCount("Account", 3)
     assert.entityCount("LienEvent", 3)
   })

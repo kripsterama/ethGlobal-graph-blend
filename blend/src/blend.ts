@@ -52,6 +52,7 @@ export function handleLoanOfferTaken(event: LoanOfferTaken): void {
   lien.auctionDuration = event.params.auctionDuration;
   lien.status = "ACTIVE";
   lien.auctionStartBlock = null;
+  lien.interestStartTimestamp = event.block.timestamp;
   lien.createdAtBlock = event.block.number;
   lien.createdAtTimestamp = event.block.timestamp;
   lien.updatedAtBlock = event.block.number;
@@ -106,6 +107,7 @@ export function handleRefinance(event: Refinance): void {
   lien.auctionDuration = event.params.newAuctionDuration;
   lien.status = "ACTIVE"; // clears any prior auction state
   lien.auctionStartBlock = null;
+  lien.interestStartTimestamp = event.block.timestamp; // new loan terms reset the interest clock
   lien.updatedAtBlock = event.block.number;
   lien.updatedAtTimestamp = event.block.timestamp;
   lien.save();

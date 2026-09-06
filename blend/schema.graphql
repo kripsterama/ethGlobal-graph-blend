@@ -9,6 +9,7 @@ type Lien @entity(immutable: false) {
   auctionDuration: BigInt!
   status: LienStatus!
   auctionStartBlock: BigInt
+  interestStartTimestamp: BigInt!  # mirrors on-chain lien.startTime; reset on Refinance, untouched by StartAuction
   createdAtBlock: BigInt!
   createdAtTimestamp: BigInt!
   updatedAtBlock: BigInt!

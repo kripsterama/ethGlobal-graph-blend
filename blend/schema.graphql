@@ -1,6 +1,40 @@
-type ExampleEntity @entity(immutable: true) {
-  id: Bytes!
-  count: BigInt!
-  previousAdmin: Bytes! # address
-  newAdmin: Bytes! # address
+type Lien @entity(immutable: false) {
+  id: ID!                        # lienId as string
+  borrower: Account!
+  lender: Account!
+  collection: Bytes!
+  tokenId: BigInt!
+  loanAmount: BigInt!
+  rate: BigInt!
+  auctionDuration: BigInt!
+  status: LienStatus!
+  auctionStartBlock: BigInt
+  createdAtBlock: BigInt!
+  createdAtTimestamp: BigInt!
+  updatedAtBlock: BigInt!
+  updatedAtTimestamp: BigInt!
+  events: [LienEvent!]! @derivedFrom(field: "lien")
+}
+
+enum LienStatus {
+  ACTIVE
+  REPAID
+  IN_AUCTION
+  SEIZED
+  SOLD_LOCKED
+}
+
+type Account @entity(immutable: false) {
+  id: ID!
+  loansAsBorrower: [Lien!]! @derivedFrom(field: "borrower")
+  loansAsLender: [Lien!]! @derivedFrom(field: "lender")
+}
+
+type LienEvent @entity(immutable: true) {
+  id: ID!                        # txHash-logIndex
+  lien: Lien!
+  eventType: String!
+  txHash: Bytes!
+  timestamp: BigInt!
+  block: BigInt!
 }

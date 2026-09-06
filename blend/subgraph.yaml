@@ -30,3 +30,35 @@ dataSources:
         - event: Upgraded(indexed address)
           handler: handleUpgraded
       file: ./src/erc-1967-proxy.ts
+  - kind: ethereum
+    name: Blend
+    network: mainnet
+    source:
+      address: "0x29469395eaf6f95920e59f858042f0e28d98a20b"
+      abi: Blend
+      startBlock: 17163167
+    mapping:
+      kind: ethereum/events
+      apiVersion: 0.0.9
+      language: wasm/assemblyscript
+      entities:
+        - Lien
+        - Account
+        - LienEvent
+      abis:
+        - name: Blend
+          file: ./abis/Blend.json
+      eventHandlers:
+        - event: LoanOfferTaken(bytes32,uint256,address,address,address,uint256,uint256,uint256,uint256)
+          handler: handleLoanOfferTaken
+        - event: Repay(uint256,address)
+          handler: handleRepay
+        - event: Refinance(uint256,address,address,uint256,uint256,uint256)
+          handler: handleRefinance
+        - event: StartAuction(uint256,address)
+          handler: handleStartAuction
+        - event: Seize(uint256,address)
+          handler: handleSeize
+        - event: BuyLocked(uint256,address,address,address,uint256)
+          handler: handleBuyLocked
+      file: ./src/blend.ts

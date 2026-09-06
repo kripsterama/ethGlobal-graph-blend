@@ -2,6 +2,10 @@
 build/
 generated/
 
+# Matchstick test runner binary + version cache
+tests/.bin/
+tests/.latest.json
+
 # Dependency directories
 node_modules/
 jspm_packages/

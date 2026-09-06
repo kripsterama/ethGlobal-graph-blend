@@ -1,6 +1,7 @@
 import { newMockEvent } from "matchstick-as"
 import { ethereum, Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
 import {
+  BuyLocked,
   LoanOfferTaken,
   Repay,
   Refinance,
@@ -107,6 +108,36 @@ export function createRefinanceEvent(
   )
 
   return refinanceEvent
+}
+
+export function createBuyLockedEvent(
+  lienId: BigInt,
+  collection: Address,
+  buyer: Address,
+  seller: Address,
+  tokenId: BigInt
+): BuyLocked {
+  let buyLockedEvent = changetype<BuyLocked>(newMockEvent())
+
+  buyLockedEvent.parameters = new Array()
+
+  buyLockedEvent.parameters.push(
+    new ethereum.EventParam("lienId", ethereum.Value.fromUnsignedBigInt(lienId))
+  )
+  buyLockedEvent.parameters.push(
+    new ethereum.EventParam("collection", ethereum.Value.fromAddress(collection))
+  )
+  buyLockedEvent.parameters.push(
+    new ethereum.EventParam("buyer", ethereum.Value.fromAddress(buyer))
+  )
+  buyLockedEvent.parameters.push(
+    new ethereum.EventParam("seller", ethereum.Value.fromAddress(seller))
+  )
+  buyLockedEvent.parameters.push(
+    new ethereum.EventParam("tokenId", ethereum.Value.fromUnsignedBigInt(tokenId))
+  )
+
+  return buyLockedEvent
 }
 
 export function createSeizeEvent(lienId: BigInt, collection: Address): Seize {

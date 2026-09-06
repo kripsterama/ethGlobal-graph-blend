@@ -8,6 +8,7 @@ import {
 } from "matchstick-as/assembly/index"
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
 import {
+  handleBuyLocked,
   handleLoanOfferTaken,
   handleRefinance,
   handleRepay,
@@ -15,6 +16,7 @@ import {
   handleStartAuction
 } from "../src/blend"
 import {
+  createBuyLockedEvent,
   createLoanOfferTakenEvent,
   createRefinanceEvent,
   createRepayEvent,
@@ -291,6 +293,59 @@ describe("handleRefinance", () => {
       BigInt.fromI32(172800)
     )
     handleRefinance(refinanceEvent)
+
+    assert.notInStore("Lien", unknownLienId)
+    assert.entityCount("Lien", 1)
+  })
+})
+
+describe("handleBuyLocked", () => {
+  beforeAll(() => {
+    let event = createLoanOfferTakenEvent(
+      Bytes.fromI32(1234567890),
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromString("1000000000000000000"),
+      BigInt.fromI32(500),
+      BigInt.fromI32(42),
+      BigInt.fromI32(86400)
+    )
+    handleLoanOfferTaken(event)
+  })
+
+  afterAll(() => {
+    clearStore()
+  })
+
+  test("marks the lien SOLD_LOCKED and logs a LienEvent", () => {
+    let buyLockedEvent = createBuyLockedEvent(
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(NEW_LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromI32(42)
+    )
+    // newMockEvent() defaults to the same tx hash/logIndex as the seed
+    // LoanOfferTaken event; bump logIndex so the LienEvent ids don't collide.
+    buyLockedEvent.logIndex = BigInt.fromI32(2)
+    handleBuyLocked(buyLockedEvent)
+
+    assert.fieldEquals("Lien", LIEN_ID, "status", "SOLD_LOCKED")
+    assert.entityCount("LienEvent", 2)
+  })
+
+  test("is a no-op when the lien is unknown", () => {
+    let unknownLienId = "999"
+    let buyLockedEvent = createBuyLockedEvent(
+      BigInt.fromString(unknownLienId),
+      Address.fromString(COLLECTION),
+      Address.fromString(NEW_LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromI32(42)
+    )
+    handleBuyLocked(buyLockedEvent)
 
     assert.notInStore("Lien", unknownLienId)
     assert.entityCount("Lien", 1)

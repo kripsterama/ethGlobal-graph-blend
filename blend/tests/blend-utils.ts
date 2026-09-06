@@ -3,6 +3,7 @@ import { ethereum, Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
 import {
   LoanOfferTaken,
   Repay,
+  Refinance,
   Seize,
   StartAuction
 } from "../generated/Blend/Blend"
@@ -69,6 +70,43 @@ export function createRepayEvent(lienId: BigInt, collection: Address): Repay {
   )
 
   return repayEvent
+}
+
+export function createRefinanceEvent(
+  lienId: BigInt,
+  collection: Address,
+  newLender: Address,
+  newAmount: BigInt,
+  newRate: BigInt,
+  newAuctionDuration: BigInt
+): Refinance {
+  let refinanceEvent = changetype<Refinance>(newMockEvent())
+
+  refinanceEvent.parameters = new Array()
+
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam("lienId", ethereum.Value.fromUnsignedBigInt(lienId))
+  )
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam("collection", ethereum.Value.fromAddress(collection))
+  )
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam("newLender", ethereum.Value.fromAddress(newLender))
+  )
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam("newAmount", ethereum.Value.fromUnsignedBigInt(newAmount))
+  )
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam("newRate", ethereum.Value.fromUnsignedBigInt(newRate))
+  )
+  refinanceEvent.parameters.push(
+    new ethereum.EventParam(
+      "newAuctionDuration",
+      ethereum.Value.fromUnsignedBigInt(newAuctionDuration)
+    )
+  )
+
+  return refinanceEvent
 }
 
 export function createSeizeEvent(lienId: BigInt, collection: Address): Seize {

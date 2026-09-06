@@ -9,12 +9,14 @@ import {
 import { Address, BigInt, Bytes } from "@graphprotocol/graph-ts"
 import {
   handleLoanOfferTaken,
+  handleRefinance,
   handleRepay,
   handleSeize,
   handleStartAuction
 } from "../src/blend"
 import {
   createLoanOfferTakenEvent,
+  createRefinanceEvent,
   createRepayEvent,
   createSeizeEvent,
   createStartAuctionEvent
@@ -24,6 +26,7 @@ const LIEN_ID = "1"
 const BORROWER = "0x00000000000000000000000000000000000000b0"
 const LENDER = "0x00000000000000000000000000000000000000e1"
 const COLLECTION = "0x000000000000000000000000000000000000c001"
+const NEW_LENDER = "0x000000000000000000000000000000000000e2e2"
 
 describe("handleLoanOfferTaken", () => {
   beforeAll(() => {
@@ -218,6 +221,76 @@ describe("handleStartAuction", () => {
       Address.fromString(COLLECTION)
     )
     handleStartAuction(startAuctionEvent)
+
+    assert.notInStore("Lien", unknownLienId)
+    assert.entityCount("Lien", 1)
+  })
+})
+
+describe("handleRefinance", () => {
+  beforeAll(() => {
+    let loanOfferTakenEvent = createLoanOfferTakenEvent(
+      Bytes.fromI32(1234567890),
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(LENDER),
+      Address.fromString(BORROWER),
+      BigInt.fromString("1000000000000000000"),
+      BigInt.fromI32(500),
+      BigInt.fromI32(42),
+      BigInt.fromI32(86400)
+    )
+    handleLoanOfferTaken(loanOfferTakenEvent)
+
+    // put the lien into an active auction so refinance's job of clearing
+    // that state is actually exercised.
+    let startAuctionEvent = createStartAuctionEvent(
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION)
+    )
+    startAuctionEvent.logIndex = BigInt.fromI32(2)
+    handleStartAuction(startAuctionEvent)
+  })
+
+  afterAll(() => {
+    clearStore()
+  })
+
+  test("switches lender, updates loan terms, and clears auction state", () => {
+    let refinanceEvent = createRefinanceEvent(
+      BigInt.fromString(LIEN_ID),
+      Address.fromString(COLLECTION),
+      Address.fromString(NEW_LENDER),
+      BigInt.fromString("2000000000000000000"),
+      BigInt.fromI32(750),
+      BigInt.fromI32(172800)
+    )
+    // newMockEvent() defaults to the same tx hash/logIndex as the seed
+    // events; bump logIndex so the LienEvent ids don't collide.
+    refinanceEvent.logIndex = BigInt.fromI32(3)
+    handleRefinance(refinanceEvent)
+
+    assert.fieldEquals("Lien", LIEN_ID, "lender", NEW_LENDER)
+    assert.fieldEquals("Lien", LIEN_ID, "loanAmount", "2000000000000000000")
+    assert.fieldEquals("Lien", LIEN_ID, "rate", "750")
+    assert.fieldEquals("Lien", LIEN_ID, "auctionDuration", "172800")
+    assert.fieldEquals("Lien", LIEN_ID, "status", "ACTIVE")
+    assert.fieldEquals("Lien", LIEN_ID, "auctionStartBlock", "null")
+    assert.entityCount("Account", 3)
+    assert.entityCount("LienEvent", 3)
+  })
+
+  test("is a no-op when the lien is unknown", () => {
+    let unknownLienId = "999"
+    let refinanceEvent = createRefinanceEvent(
+      BigInt.fromString(unknownLienId),
+      Address.fromString(COLLECTION),
+      Address.fromString(NEW_LENDER),
+      BigInt.fromString("2000000000000000000"),
+      BigInt.fromI32(750),
+      BigInt.fromI32(172800)
+    )
+    handleRefinance(refinanceEvent)
 
     assert.notInStore("Lien", unknownLienId)
     assert.entityCount("Lien", 1)

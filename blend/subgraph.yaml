@@ -10,11 +10,8 @@ dataSources:
     source:
       address: "0x29469395eaf6f95920e59f858042f0e28d98a20b"
       abi: ERC1967Proxy
-      # Production startBlock is 17163167 (proxy deployment block — covers
-      # full history). Temporarily narrowed to ~3 days ago for local/Studio
-      # test iteration so redeploys sync in minutes, not hours. Restore
-      # 17163167 before the real production deploy.
-      startBlock: 25897571
+      # Proxy deployment block — full production history.
+      startBlock: 17163167
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
@@ -40,11 +37,8 @@ dataSources:
     source:
       address: "0x29469395eaf6f95920e59f858042f0e28d98a20b"
       abi: Blend
-      # Production startBlock is 17163167 (proxy deployment block — covers
-      # full history). Temporarily narrowed to ~3 days ago for local/Studio
-      # test iteration so redeploys sync in minutes, not hours. Restore
-      # 17163167 before the real production deploy.
-      startBlock: 25897571
+      # Proxy deployment block — full production history.
+      startBlock: 17163167
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9

@@ -1,27 +1,34 @@
 ---
 name: blend-active-loans
 description: >-
-  Query the Blend subgraph for currently active (open) loans and enrich them
-  with computed APY, ETH/USD amounts, accrued gains, monthly/annual gain
-  forecasts, LTV% (via NFT floor price), and collection names, plus
-  portfolio-wide totals. Optionally filter to a single lender wallet address
-  and/or a single NFT collection. Use when the user asks about active/open
-  Blend loans, e.g. "show me open loans", "what loans are currently active",
-  "list active Blend positions", "show active loans for lender 0x...",
-  "active loans against BAYC", "what are my projected monthly/annual gains",
-  "what's the LTV on these loans".
+  Query the Blend subgraph for currently open loans (ACTIVE and IN_AUCTION —
+  a loan a lender has moved to exit isn't closed until repaid, refinanced,
+  or seized) and enrich them with computed APY, ETH/USD amounts, accrued
+  gains, monthly/annual gain forecasts, LTV% (via NFT floor price), auction
+  countdown status, and collection names, plus portfolio-wide totals.
+  Optionally filter to a single lender wallet address and/or a single NFT
+  collection. Use when the user asks about active/open Blend loans, e.g.
+  "show me open loans", "what loans are currently active", "list active
+  Blend positions", "show active loans for lender 0x...", "active loans
+  against BAYC", "what are my projected monthly/annual gains", "what's the
+  LTV on these loans", "what's the status of my auctions", "which loans have
+  I closed positions on that haven't resolved yet".
 ---
 
 # Blend Active Loans
 
-Fetches `ACTIVE`-status `Lien`s from the Blend subgraph and enriches the raw
-on-chain fields with values the subgraph deliberately does not store
-(collection name, floor price/LTV, human units, USD pricing, and
-time-dependent interest math). See `blend/USE_CASES.md` (UC1: all active
-loans; UC2: active loans for one lender; UC3: gains in USD + monthly/annual
-forecasts + portfolio totals; UC4: LTV% via floor price) for the full
-derivation and reasoning behind these formulas — this skill just executes
-those use cases end to end.
+Fetches `ACTIVE` and `IN_AUCTION` `Lien`s from the Blend subgraph — both are
+"open" from a lender's perspective, a loan a lender has exited via
+`startAuction` isn't actually closed until the borrower repays, a new lender
+refinances them out, or the auction window fully elapses and the lender
+seizes — and enriches the raw on-chain fields with values the subgraph
+deliberately does not store (collection name, floor price/LTV, human units,
+USD pricing, and time-dependent interest math). See `blend/USE_CASES.md`
+(UC1: all active loans; UC2: active loans for one lender; UC3: gains in USD
++ monthly/annual forecasts + portfolio totals; UC4: LTV% via floor price;
+UC5: in-auction loans + status/countdown) for the full derivation and
+reasoning behind these formulas — this skill just executes those use cases
+end to end.
 
 **Collection name and NFT token ID are always shown, immediately after
 Lien ID, for every loan row — never drop them for space.**
@@ -38,7 +45,7 @@ address, narrow the query to just those instead of returning everything:
   Same rule: lowercase it first (`Bytes` fields are stored/returned
   lowercase, as seen when querying by BAYC's address).
 - Both can be combined (e.g. "lender X's active BAYC loans") — just add both
-  keys to the same `where` object alongside `status: ACTIVE`.
+  keys to the same `where` object alongside `status_in: [ACTIVE, IN_AUCTION]`.
 - If the user names a collection by ticker/name (e.g. "BAYC") rather than by
   address, resolve the address first (either from prior context in the
   conversation, or by asking) rather than guessing.
@@ -62,23 +69,27 @@ address, narrow the query to just those instead of returning everything:
 
 ## Steps
 
-1. **Query active loans.** POST this to the endpoint above. `where` starts
-   with just `status: ACTIVE`; add `lender`/`collection` keys per the
-   Filtering section above if the invocation asked for them:
+1. **Query open loans.** POST this to the endpoint above. `where` starts
+   with `status_in: [ACTIVE, IN_AUCTION]` — both are "open" (see intro); add
+   `lender`/`collection` keys per the Filtering section above if the
+   invocation asked for them:
 
    ```graphql
-   query ActiveLoans {
+   query OpenLoans {
      liens(
        first: 100
-       where: { status: ACTIVE }
+       where: { status_in: [ACTIVE, IN_AUCTION] }
        orderBy: createdAtTimestamp
        orderDirection: desc
      ) {
        id
+       status
        collection
        tokenId
        loanAmount
        rate
+       auctionStartBlock
+       auctionDuration
        createdAtTimestamp
        interestStartTimestamp
        lender {
@@ -117,11 +128,19 @@ address, narrow the query to just those instead of returning everything:
      price/LTV as **N/A** for every loan in that collection rather than
      guessing or omitting the row.
 
-3. **Get the current time and ETH/USD price.** Time: `date +%s`. Price: a
-   free, keyless source works fine, e.g.:
+3. **Get the current time, ETH/USD price, and (if any loan is `IN_AUCTION`)
+   the current block number.** Time: `date +%s`. Price, keyless:
 
    ```bash
    curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+   ```
+
+   Current block, needed for the auction countdown in step 4a, also keyless:
+
+   ```bash
+   curl -s -X POST https://ethereum.publicnode.com -H "Content-Type: application/json" \
+     --data '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+   # result is hex — convert to decimal before using
    ```
 
 4. **Compute the derived fields per loan**, using `interestStartTimestamp`
@@ -166,6 +185,34 @@ address, narrow the query to just those instead of returning everything:
    rather than approximating by hand — the exponential is easy to get
    meaningfully wrong via mental math, especially at higher rates.
 
+4a. **For `IN_AUCTION` loans, compute a status/countdown, and don't skip
+   them just because they're not `ACTIVE`.** A lender exits a position via
+   `startAuction`, which starts a race, not a close: the borrower can repay,
+   a new lender can refinance them out, or — only once the window fully
+   elapses with neither happening — the original lender can `seize` the
+   collateral. All the financial columns (LTV, APY, gains, monthly/annual)
+   still apply unchanged; interest keeps accruing on the original terms
+   during an auction (confirmed in source — `startAuction` carries
+   `lien.startTime` through unchanged).
+
+   **`auctionDuration` is a block count, not seconds** — confirmed against
+   the contract source (`Helpers.calcRefinancingAuctionRate` computes its
+   rate curve explicitly "per block," comparing `block.number - startBlock`
+   against fractions of `auctionDuration`) and empirically (a real lien's
+   `auctionDuration: 9000` matches a lender-described "30 hour window"
+   exactly at ~12 sec/block: `9000 * 12 / 3600 = 30`). Treating it as
+   seconds would be wrong by a factor of ~300.
+
+   ```
+   deadline_block    = auctionStartBlock + auctionDuration
+   remaining_blocks  = deadline_block - current_block
+   remaining_hours   = remaining_blocks * 12 / 3600     # ~12 sec/block, post-merge
+
+   status_display:
+     remaining_blocks > 0  -> "AUCTION — {remaining_hours}h remaining"
+     remaining_blocks <= 0 -> "AUCTION — window elapsed, seizable now"
+   ```
+
 5. **Watch for extreme-rate outliers before presenting an annual total.**
    Blend's refinancing-auction rate can spike as high as 100,000 bips
    (1000% APY) as a loan nears liquidation with no refinancer. Continuous
@@ -188,14 +235,17 @@ address, narrow the query to just those instead of returning everything:
 6. **Present as a table**, one row per loan, columns in this order: Lien ID,
    **Collection (name) + NFT token ID** (always, right after Lien ID — never
    drop these for space), Loan Amount (ETH), **LTV %** (right after loan
-   amount), APY %, Gains to Date (ETH/USD), Monthly Forecast (ETH/USD),
+   amount), APY %, **Status** (`ACTIVE`, or the auction countdown string
+   from step 4a), Gains to Date (ETH/USD), Monthly Forecast (ETH/USD),
    Annual Forecast (ETH/USD), Lender address, Issued (date/time). If there
    are more matching loans than are reasonable to print (rule of thumb:
    ~20+), show a representative sample (e.g. the N largest by loan size)
    rather than every row — but say so explicitly (total count, what the
    sample was sorted/limited by) rather than quietly truncating, and compute
    the **totals section from the full result set**, not just the printed
-   sample.
+   sample. If any loan is `IN_AUCTION`, call it out in prose too (not just
+   in the table), since it's an active, time-sensitive decision point for
+   the lender — don't let it blend in as just another row.
 
 7. **Add a totals row/section**: sum of gains-to-date, monthly forecast, and
    annual forecast, each in both ETH and USD, across every matching loan,
@@ -226,3 +276,12 @@ address, narrow the query to just those instead of returning everything:
   `bytes32` instead of `string`), fall back further to showing the raw
   collection address instead of failing the whole query. LTV stays N/A in
   this case too, same as the CoinGecko-404-only case.
+- `tokenId` is always the raw ERC-721 token ID (verified correct against raw
+  on-chain `Transfer` logs, independent of this subgraph). Some collections
+  — confirmed for CloneX — brand NFTs with a separate "display number" that
+  differs from the actual token ID for the same NFT, so a loan's shown
+  tokenId may not match what a collection's own marketplace/dashboard
+  displays for it. This is not a bug; don't silently "fix" it by guessing a
+  different number, and mention the distinction if a user flags a mismatch
+  against another source (see `blend/USE_CASES.md` UC1 for the full
+  writeup).

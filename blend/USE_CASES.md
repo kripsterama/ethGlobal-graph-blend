@@ -39,6 +39,23 @@ query ActiveLoans {
   lowercase hex string of the address).
 - `createdAtTimestamp` → the date/time the loan was originally issued (unix seconds).
 
+**Known quirk — `tokenId` is the raw ERC-721 token ID, which isn't always the
+number a collection is branded by.** A lender flagged that our CloneX token IDs
+didn't match Blend's own dashboard for the same loans. Verified independently
+(raw on-chain `Transfer` log for lien `440903`: token ID `9357`, matching our
+subgraph exactly) that our data is correct — the on-chain event and every
+transfer only ever carry the true ERC-721 `tokenId`, which is what we store.
+CloneX specifically has a *second*, separate "display number" branded to
+collectors that differs from the contract token ID for the same NFT (confirmed
+via Etherscan: the same token appears as both `/nft/.../15861` in the URL and
+"CloneX #7878" in the page title — Blend's dashboard evidently shows this
+display number). Resolving it would need a **per-token** metadata lookup
+(`tokenURI(tokenId)`, not a once-per-collection call like floor price), and
+CloneX's metadata hosting has had prior outages (a 2025 Cloudflare incident took
+its images/metadata offline temporarily) — a reliability risk the raw on-chain
+token ID never has. Decision: keep showing the raw token ID and document this
+rather than add per-token metadata resolution for now.
+
 ### Derived client-side (not stored — computed at query/render time)
 
 Confirmed against the actual Blend contract source (`Helpers.computeCurrentDebt`,
@@ -252,3 +269,61 @@ ETH/USD price in UC3.
 A loan with LTV at or above ~80-90% is a position close to or past being
 underwater relative to current floor. Call these out in prose alongside the
 table, not just as a number a reader might skim past.
+
+---
+
+## UC5: In-auction loans, shown alongside active, with status/countdown
+
+**Ask:** a lender exits a position by calling `startAuction` — but that doesn't
+close the loan. The borrower gets a window to repay, or a new lender can
+refinance them out; only after the window fully elapses with neither happening
+can the original lender `seize` the collateral. These loans (`status:
+IN_AUCTION`) need to show up in the same view as `ACTIVE` loans, not be silently
+excluded just because they're no longer `ACTIVE` — with a status indicator
+showing what's actually happening (time remaining, or "seizable now").
+
+### Query change from UC1/UC2
+
+```graphql
+where: { status_in: [ACTIVE, IN_AUCTION] }
+```
+
+`status_in` is graph-node's standard auto-generated enum-list filter — verified
+against real data. All the UC1/UC3/UC4 derived-value formulas (APY, gains,
+monthly/annual, LTV) apply unchanged to `IN_AUCTION` loans: the contract leaves
+`lien.startTime`/`amount`/`rate` untouched when an auction starts (same fact
+`interestStartTimestamp` was built around — see UC1's "Resolved" section), so
+interest keeps accruing on the original terms throughout the auction.
+
+### Gotcha, confirmed against the real contract source AND a real user report
+
+`Lien.auctionDuration` is a **block count, not seconds**. Found because a real
+example didn't add up: a lender reported a specific position had "a 30 hour
+window" to resolve, but the stored `auctionDuration` was `9000` — which is 2.5
+hours if read as seconds. Checking `Helpers.calcRefinancingAuctionRate` in the
+verified contract source confirms it: the auction rate curve is computed
+explicitly "per block" (`block.number - startBlock` compared against fractions
+of `auctionDuration`, with slopes commented "wad-bips per block"). At Ethereum's
+~12-second post-merge block time, `9000 blocks * 12s = 108,000s = exactly 30
+hours` — matching the report precisely. Treating this field as seconds anywhere
+(a countdown, a "time remaining" display) would be wrong by a factor of ~300.
+
+### Status/countdown formula
+
+```
+deadline_block   = auctionStartBlock + auctionDuration
+remaining_blocks = deadline_block - current_block          # current_block via any RPC
+remaining_hours  = remaining_blocks * 12 / 3600
+
+status:
+  ACTIVE                                    -> "ACTIVE"
+  IN_AUCTION, remaining_blocks > 0          -> "AUCTION — {remaining_hours}h remaining"
+  IN_AUCTION, remaining_blocks <= 0         -> "AUCTION — window elapsed, seizable now"
+```
+
+### Display
+
+Add a `Status` column to the table (per-loan), and call out any `IN_AUCTION`
+loan in prose alongside the table — it's a live, time-sensitive decision point
+for the lender (repay incoming? refinance incoming? about to become seizable?),
+not just another row to skim past.

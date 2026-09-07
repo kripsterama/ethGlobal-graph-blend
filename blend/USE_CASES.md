@@ -87,3 +87,45 @@ Covered by tests in `tests/blend.test.ts`: `handleStartAuction`'s test asserts
 `interestStartTimestamp` is unchanged after an auction starts (while
 `updatedAtTimestamp` does change), and `handleRefinance`'s test asserts it resets
 to the refinance event's timestamp.
+
+---
+
+## UC2: Active loans for one lender
+
+**Ask:** same as UC1, but scoped to a single lender's wallet address — "what active
+positions does lender X currently hold."
+
+### Query
+
+Identical to UC1's, with `lender` added to `where`. The address must be
+**lowercased** first — `Account.id` is stored as a lowercase hex string, so a
+mixed-case or checksummed address won't match:
+
+```graphql
+query ActiveLoansForLender($lender: String!) {
+  liens(
+    where: { status: ACTIVE, lender: $lender }
+    orderBy: createdAtTimestamp
+    orderDirection: desc
+  ) {
+    id
+    collection
+    tokenId
+    loanAmount
+    rate
+    createdAtTimestamp
+    interestStartTimestamp
+  }
+}
+```
+
+(`lender` variable, e.g. `"0xfad4d20eda6d3dfe8f59899b898427594b53b228"`.)
+
+All the same derived-value formulas from UC1 apply unchanged (APY, gains-to-date,
+unit conversions) — this is the same use case with one extra `where` clause, not a
+different data shape. No schema/handler changes were needed to support it: `lender`
+was already a required, indexed relationship field on `Lien`.
+
+Implemented as an optional filter in the `blend-active-loans` skill rather than as
+a separate skill, since UC1 and UC2 are the same query shape differing only by
+`where` clause — see that skill's "Filtering" section.

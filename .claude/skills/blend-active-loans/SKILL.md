@@ -3,26 +3,47 @@ name: blend-active-loans
 description: >-
   Query the Blend subgraph for currently active (open) loans and enrich them
   with computed APY, ETH amounts, accrued gains, and NFT collection names.
-  Use when the user asks about active/open Blend loans, e.g. "show me open
-  loans", "what loans are currently active", "list active Blend positions".
+  Optionally filter to a single lender wallet address and/or a single NFT
+  collection. Use when the user asks about active/open Blend loans, e.g.
+  "show me open loans", "what loans are currently active", "list active
+  Blend positions", "show active loans for lender 0x...", "active loans
+  against BAYC".
 ---
 
 # Blend Active Loans
 
-Fetches every `ACTIVE`-status `Lien` from the Blend subgraph and enriches the
-raw on-chain fields with values the subgraph deliberately does not store
+Fetches `ACTIVE`-status `Lien`s from the Blend subgraph and enriches the raw
+on-chain fields with values the subgraph deliberately does not store
 (collection name, human units, and time-dependent interest math). See
-`blend/USE_CASES.md` (UC1) for the full derivation and reasoning behind these
-formulas — this skill just executes that use case end to end.
+`blend/USE_CASES.md` (UC1: all active loans; UC2: active loans for one
+lender) for the full derivation and reasoning behind these formulas — this
+skill just executes those use cases end to end.
+
+## Filtering (optional)
+
+If the invocation's args mention a lender address and/or a collection
+address, narrow the query to just those instead of returning everything:
+
+- **Lender** — add `lender: "<address>"` to the `where` clause. `Account.id`
+  is stored as a lowercase hex string, so **lowercase the address** before
+  filtering, regardless of the casing the user typed it in.
+- **Collection** — add `collection: "<address>"` to the `where` clause.
+  Same rule: lowercase it first (`Bytes` fields are stored/returned
+  lowercase, as seen when querying by BAYC's address).
+- Both can be combined (e.g. "lender X's active BAYC loans") — just add both
+  keys to the same `where` object alongside `status: ACTIVE`.
+- If the user names a collection by ticker/name (e.g. "BAYC") rather than by
+  address, resolve the address first (either from prior context in the
+  conversation, or by asking) rather than guessing.
 
 ## Configuration
 
-- **Endpoint (test, ~3-day window, currently live):**
-  `https://api.studio.thegraph.com/query/1758724/blend/v0.0.2`
-- **Endpoint (production, full history):** not yet deployed — `subgraph.yaml`
-  currently has a temporary test `startBlock` (see the comment above it).
-  Once the full-history version is deployed, update this file with its
-  version URL (`.../blend/v0.0.X`) and prefer it over the test endpoint.
+- **Endpoint:** not hardcoded here on purpose — the Studio query URL embeds a
+  subgraph ID and is a live query surface, so it shouldn't sit in a public
+  repo. Check memory first for a saved endpoint for this project; if none is
+  found, ask the user for it and save it to memory afterward (as a
+  `reference` memory) so future invocations don't need to ask again. Never
+  write the endpoint into a file inside this repo.
 - **RPC for collection name lookups:** any public Ethereum mainnet JSON-RPC
   endpoint works (e.g. `https://ethereum.publicnode.com`). No API key needed
   — this skill reads collection names directly from each NFT contract's
@@ -31,7 +52,9 @@ formulas — this skill just executes that use case end to end.
 
 ## Steps
 
-1. **Query active loans.** POST this to the endpoint above:
+1. **Query active loans.** POST this to the endpoint above. `where` starts
+   with just `status: ACTIVE`; add `lender`/`collection` keys per the
+   Filtering section above if the invocation asked for them:
 
    ```graphql
    query ActiveLoans {

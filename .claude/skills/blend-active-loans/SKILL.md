@@ -111,7 +111,12 @@ address, narrow the query to just those instead of returning everything:
 2. **Resolve collection name + floor price, once per collection.** Collect
    the distinct `collection` addresses from the results — dedupe first, this
    lookup happens **once per unique collection, not once per loan**, since
-   multiple loans commonly share a collection:
+   multiple loans commonly share a collection. Before making any of these
+   calls, count the distinct addresses and make exactly that many calls —
+   if the number of CoinGecko/RPC calls made in this step doesn't match the
+   distinct-collection count, that's the same class of performance bug as
+   the timezone one in step 3 (an operation that should run once per unique
+   value instead running once per loan):
 
    ```bash
    curl -s "https://api.coingecko.com/api/v3/nfts/ethereum/contract/<collection_address>"
@@ -128,8 +133,19 @@ address, narrow the query to just those instead of returning everything:
      price/LTV as **N/A** for every loan in that collection rather than
      guessing or omitting the row.
 
-3. **Get the current time, ETH/USD price, and (if any loan is `IN_AUCTION`)
-   the current block number.** Time: `date +%s`. Price, keyless:
+3. **Get everything that's a one-time, session-wide constant: current time,
+   local timezone, ETH/USD price, and (if any loan is `IN_AUCTION`) the
+   current block number.** None of these vary per loan — fetch/detect each
+   exactly **once here**, not inside the per-loan loop in step 4. This
+   includes the local timezone used for `issued_at` in step 4: detect it
+   once now (e.g. `date +%Z`, or Python's `datetime.now().astimezone().tzinfo`)
+   and reuse that single value for every loan's timestamp conversion. Doing
+   this per-loan instead of once is a real, measured performance bug in
+   earlier runs of this skill — ~19 loans took ~3 minutes, dominated by
+   redundant timezone-detection calls repeated once per loan instead of once
+   total.
+
+   Time: `date +%s`. Price, keyless:
 
    ```bash
    curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
@@ -143,16 +159,26 @@ address, narrow the query to just those instead of returning everything:
    # result is hex — convert to decimal before using
    ```
 
-4. **Compute the derived fields per loan**, using `interestStartTimestamp`
-   (not `createdAtTimestamp` — they diverge after a refinance) as the accrual
-   basis. `rate` (bips) is itself the quoted annual rate — convert directly
-   to a percent, don't run it through an exponential transform. Debt/gains
-   growth over time, however, *is* continuously compounded (confirmed
-   against the actual Blend contract source, `Helpers.computeCurrentDebt`).
-   Monthly/annual figures are **forward-looking projections** — the interest
-   that would accrue over the *next* month/year if the loan's current
-   principal and rate held constant for that whole period, not a historical
-   figure:
+4. **Compute the derived fields for all N loans in a single script
+   execution** (one Python/Node/etc. call that loops over every loan and
+   prints the finished rows), not N separate tool calls. This is the same
+   fix as step 3's timezone note, generalized: anything that's the same
+   operation repeated per loan belongs in one batched call, not one call per
+   loan — each extra tool-call round trip costs real wall-clock time
+   (sandbox overhead, model turnaround) far beyond the trivial arithmetic
+   itself, and is the actual reason a 19-loan run took ~3 minutes rather
+   than a few seconds.
+
+   Using `interestStartTimestamp` (not `createdAtTimestamp` — they diverge
+   after a refinance) as the accrual basis. `rate` (bips) is itself the
+   quoted annual rate — convert directly to a percent, don't run it through
+   an exponential transform. Debt/gains growth over time, however, *is*
+   continuously compounded (confirmed against the actual Blend contract
+   source, `Helpers.computeCurrentDebt`). Monthly/annual figures are
+   **forward-looking projections** — the interest that would accrue over the
+   *next* month/year if the loan's current principal and rate held constant
+   for that whole period, not a historical figure. `issued_at` uses the
+   local timezone detected once in step 3 — don't re-detect it here:
 
    ```
    loan_eth       = loanAmount / 1e18
@@ -167,10 +193,9 @@ address, narrow the query to just those instead of returning everything:
    monthly_usd       = monthly_eth * eth_usd_price
    annual_usd        = annual_eth * eth_usd_price
 
-   issued_at      = createdAtTimestamp converted to the user's local timezone
-                    (detect it from the local machine, e.g. `date +%Z` or
-                    Python's `datetime.now().astimezone().tzinfo` — don't
-                    assume UTC or hardcode a specific zone)
+   issued_at      = createdAtTimestamp converted using the local timezone
+                    already detected once in step 3 (don't re-detect it
+                    per loan, and don't assume UTC or hardcode a zone)
    ```
 
    `ltv_pct` uses the specific NFT's *collection* floor as a stand-in for

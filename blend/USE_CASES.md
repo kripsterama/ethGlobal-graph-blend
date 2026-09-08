@@ -327,3 +327,62 @@ Add a `Status` column to the table (per-loan), and call out any `IN_AUCTION`
 loan in prose alongside the table — it's a live, time-sensitive decision point
 for the lender (repay incoming? refinance incoming? about to become seizable?),
 not just another row to skim past.
+
+---
+
+## UC6: Querying loan offers (not just taken loans) — not indexable, and no API found either
+
+**Ask:** query loan offers, not just liens that resulted from a taken offer.
+
+### Why the subgraph structurally can't do this
+
+Confirmed against the actual contract source (`OfferController.sol`). Offers are
+off-chain EIP-712 signed messages — they never touch chain state until (and
+unless) something happens to them:
+
+```solidity
+function _validateOffer(...) internal view {
+    _verifyOfferAuthorization(offerHash, signer, oracle, signature);  // pure signature check
+    if (expirationTime < block.timestamp) revert OfferExpired();
+    if (cancelledOrFulfilled[signer][salt] == 1) revert OfferUnavailable();
+}
+```
+
+There is no `offers` mapping or array anywhere in the contract storing offer
+terms. The only three on-chain traces related to offers, all confirmed in the
+ABI:
+
+- **`LoanOfferTaken`** — an offer was fulfilled. Already fully indexed (this
+  is how every `Lien` in this subgraph comes to exist).
+- **`OfferCancelled(user, salt)`** — one specific offer was explicitly killed.
+  Not indexed. Carries no offer terms, just enough to invalidate a future
+  signature check.
+- **`NonceIncremented(user, newNonce)`** — a lender bulk-invalidated *every*
+  offer they'd ever signed. Not indexed. Also carries no offer terms.
+
+A subgraph can only ever see what happened on-chain — since a live,
+not-yet-taken offer has no on-chain footprint at all, there is no schema or
+mapping change that could make it queryable here. This isn't a missing
+feature; it's outside what any on-chain indexer can do for this contract.
+
+### Checked whether Blur exposes this off-chain — they don't, at least not publicly
+
+Searched for an official Blur/Blend API that might expose the live offer
+orderbook directly (bypassing the on-chain-only limitation above). Consistent
+finding across multiple searches: **Blur does not publish an official public
+developer API or SDK**, for the marketplace or for Blend specifically. One
+explainer source independently describes Blend's matching as using "a
+sophisticated off-chain offer protocol" — consistent with the contract-source
+finding above, from a different angle. Third-party NFT indexers that do exist
+for Blur (Bitquery, SimpleHash, Alchemy) appear to only re-index the same
+on-chain events this subgraph already captures, not the live off-chain
+orderbook. No concrete, documented endpoint for outstanding offers — official
+or reverse-engineered — turned up anywhere. Not building against anything
+undocumented and unverified; there's no stable foundation there to depend on.
+
+### What's actually available, if partial visibility into offer *lifecycle* is useful
+
+`OfferCancelled` and `NonceIncremented` could be indexed to show an audit
+trail of *cancelled/invalidated* offers per lender — real data, but it answers
+"what did this lender kill" not "what's currently live." Not implemented;
+flagging as an option if that partial view turns out to be useful later.

@@ -28,12 +28,13 @@ reasoning behind these definitions — this skill just executes that end to
 end.
 
 **Delivery is a published, interactive web dashboard artifact, not an
-email.** Two charts (live SVG/JS, hover tooltips) on one page, redeployed to
+email.** Two charts (live SVG/JS, hover tooltips) on one page, built from
+`TEMPLATE.html` (in this skill's own folder — see step 7) and redeployed to
 the same URL every run so the link is a stable bookmark that always shows
-the latest data. There is a sibling skill, `blend-market-summary` (email
-delivery, static PNG charts) — use that one instead if the user specifically
-asks to be emailed the report; this one is for "show me," "dashboard," or
-"link" requests.
+the latest data. There is a sibling skill, `blend-market-summary` (plain-
+text email, no charts) — use that one instead if the user specifically asks
+to be emailed the report; this one is for "show me," "dashboard," or "link"
+requests.
 
 **Purpose beyond the raw numbers:** this data is meant to be the market-side
 reference a specific wallet's loans get compared against later (is this
@@ -340,59 +341,67 @@ curl -s -X POST <endpoint> \
      distinct collections represented in the 30d window, same "this is a
      ranked slice" framing as the depth table.
 
-7. **Publish the two-chart dashboard artifact**, reusing the exact same
-   `top10_by_depth` / `top10_by_30d_closes` data (and resolved names) from
-   steps 5-6 — no new queries or lookups needed for this step.
+7. **Publish the two-chart dashboard artifact from `TEMPLATE.html`**
+   (in this skill's own folder), reusing the exact same `top10_by_depth` /
+   `top10_by_30d_closes` data (and resolved names) from steps 5-6 — no new
+   queries or lookups needed for this step.
 
-   **This only means designing from scratch on the very first publish.** On
-   every later run (the "Found" branch below), read the existing artifact
-   and patch its embedded data in place — the chart datasets (two small
-   arrays), the four stat-tile values, and the as-of timestamp — reusing its
-   existing HTML/CSS/JS structure verbatim. Don't invoke `dataviz` or
-   `artifact-design` or redesign anything on a redeploy; that's how the
-   dashboard stays visually stable across runs instead of drifting.
+   **Always start from `TEMPLATE.html`, on the first publish and every
+   redeploy alike — never design from scratch.** That file is a known-good,
+   already-designed dashboard (teal accent, IBM Plex type, a bar chart and a
+   quadrant-framed risk scatter with a flagged-outlier callout). Do **not**
+   invoke `dataviz` or `artifact-design` for this step, and don't make any
+   creative/aesthetic decisions here — every prior attempt at "design it
+   fresh" produced a visibly different, less-preferred result, which is
+   exactly the failure mode this template exists to close off.
 
-   **First publish only** — before writing any chart or artifact code,
-   invoke the `dataviz` skill (via the `Skill` tool) for chart/color
-   guidance and the `artifact-design` skill for artifact fundamentals, both
-   required loads before writing chart code or publishing an artifact for
-   the first time.
-
-   - **Chart 1 — Market Rate by Collection.** Bar chart, one bar per
-     collection in `top10_by_depth`. X = collection name, Y =
-     `median_apy_by_collection` (%). Include `open_count_by_collection` and
-     `eth_locked_by_collection` in each bar's tooltip/label for context.
-   - **Chart 2 — Rate vs. Risk by Collection.** Scatter/bubble chart. X =
-     `median_apy_by_collection` (%), Y = `seize_rate_pct_by_collection` (30d,
-     %), bubble radius scaled by `open_count_by_collection`. Only plot
-     collections that have **both** metrics — i.e. the intersection of
-     `top10_by_depth` and `top10_by_30d_closes` (both already name-resolved
-     in step 5, so this needs no extra API calls). If that intersection has
-     fewer than 3 collections, say so plainly instead of forcing a
-     near-empty chart — don't expand the lookup scope to fill it in.
-
-   Both charts go on one published HTML artifact (two panels, one page).
+   The template's `<script>` block is clearly divided into a **DATA**
+   section (top) and a **RENDER** section (bottom, commented "fixed, don't
+   edit on a redeploy"). Editing this artifact is *only* ever replacing the
+   DATA section's five constants with freshly computed values — nothing
+   else in the file changes, ever:
+   - `stats` — `openCount`, `activeCount`, `auctionCount` from `open_count`/
+     `active_count`/`auction_count`; `medianEth`/`medianUsd`/`ethUsdPrice`
+     from `median_eth`/`median_usd`/the live ETH/USD price; `marketMedianApy`
+     from `market_median_apy`; `given24hApy`/`apyTrendDelta` from
+     `median_apy_given_24h`/`market_apy_trend_delta` (if no loans were given
+     in the window, keep the prior run's values rather than inventing a
+     placeholder — note this in the chat reply instead).
+   - `chart1` — one `{collection, medianApy, openLoans, ethLocked}` entry
+     per `top10_by_depth` collection, using `median_apy_by_collection`,
+     `open_count_by_collection`, `eth_locked_by_collection`.
+   - `chart2` — one `{collection, medianApy, seizeRatePct, openLoans}` entry
+     per collection in the intersection of `top10_by_depth` and
+     `top10_by_30d_closes` (already name-resolved in step 5, so this needs
+     no extra API calls), using `median_apy_by_collection`,
+     `seize_rate_pct_by_collection`, `open_count_by_collection`. If that
+     intersection has fewer than 3 collections, don't force a near-empty
+     chart — say so plainly in the chat reply and leave `chart2` as the
+     prior run's data rather than publishing something misleading.
+   - `marketMedianApy` — reuses `stats.marketMedianApy`, already set above.
+   - `marketSeizeRate` — `market_seize_rate_pct` from step 6.
+   - `now_unix` — the session-wide constant from step 2.
 
    **This is a persistent, redeployed dashboard, not a new artifact per
    run** — check memory first for a saved artifact URL (`reference` memory,
    e.g. `blend_market_summary_dashboard_url`):
    - **Found:** read it (`action: "read"`) to get the current published
-     version, then republish to that same `url` after patching in the
-     freshly computed data — the `chart1`/`chart2` arrays, the
-     `marketMedianApy`/`marketSeizeRate` reference-line values, the four
-     stat-tile numbers, and `now_unix`, all inline in the page's `<script>` —
-     leaving everything else (markup, CSS, layout) untouched. The link stays
-     the same across every invocation, always showing the latest run.
-   - **Not found:** publish a new artifact, then save its URL as a
-     `reference` memory so future runs reuse it instead of creating a new
+     version — this confirms the live page still matches `TEMPLATE.html`'s
+     structure — then republish to that same `url` with only the DATA
+     section's five constants swapped in, exactly as described above. The
+     link stays the same across every invocation, always showing the latest
+     run.
+   - **Not found:** publish `TEMPLATE.html` itself (with the DATA section
+     patched to this run's values) as a new artifact, then save its URL as
+     a `reference` memory so future runs reuse it instead of creating a new
      link each time.
 
-   Pick a title and favicon once on first publish (e.g. "Blend Market
-   Pulse", 📊) and never change them on later redeploys — per the Artifact
-   tool's own convention, a changed favicon/title reads as a different page
-   to a viewer who bookmarked the link.
+   Title and favicon are already set in `TEMPLATE.html` ("Blend Market
+   Pulse", 📊) — never change them on a redeploy, per the Artifact tool's
+   own convention that a changed favicon/title reads as a different page to
+   a viewer who bookmarked the link.
 
-   Share the artifact link alongside the pasted markdown from step 6 — the
+   Share the artifact link alongside the pasted text from step 6 — the
    charts are the artifact, don't also try to render them as ASCII/text.
 
 ## Notes

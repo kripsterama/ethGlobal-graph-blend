@@ -237,7 +237,19 @@ Published once and **redeployed to the same link on every run** (the URL is
 saved as a `reference` memory after the first publish), rather than a new
 artifact per invocation, so the dashboard is a stable bookmark that always
 reflects the latest data. There is a sibling skill, `blend-market-summary`,
-that delivers the same underlying data as an HTML email with static PNG
-charts instead — use that one when the ask is specifically to be emailed the
-report rather than shown/linked a dashboard. See `SKILL.md` step 7 for the
+that delivers the same underlying data as a plain-text email instead — use
+that one when the ask is specifically to be emailed the report rather than
+shown/linked a dashboard.
+
+**The dashboard's design is a fixed, checked-in template
+(`TEMPLATE.html`, in this skill's own folder), not something generated
+fresh each run.** An earlier version of this skill invoked the `dataviz`/
+`artifact-design` skills to design the dashboard from scratch on every
+first publish — which meant a brand-new copy of this skill (no saved
+artifact-URL memory yet) produced a visibly different look each time a
+fresh "first publish" happened, since each design pass is an independent
+creative act. `TEMPLATE.html` closes that off: every publish and redeploy
+starts from the same known-good HTML, and the only thing that ever changes
+is a handful of data constants in its `<script>` block (clearly marked off
+from the fixed rendering code below them). See `SKILL.md` step 7 for the
 full publish/redeploy instructions.

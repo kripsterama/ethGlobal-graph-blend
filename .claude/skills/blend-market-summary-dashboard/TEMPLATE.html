@@ -1,0 +1,498 @@
+<title>Blend Market Pulse</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #eef1f1;
+    --surface: #ffffff;
+    --surface-2: #f5f7f7;
+    --ink: #12181a;
+    --ink-muted: #5b6669;
+    --ink-faint: #8b9598;
+    --border: #d7dedf;
+    --accent: #0f7a82;
+    --accent-soft: #dcecec;
+    --accent-strong: #0a5c63;
+    --good: #3f8f5f;
+    --warning: #b8862c;
+    --critical: #c1442e;
+    --critical-soft: #f6dfda;
+    --shadow: 0 1px 2px rgba(18,24,26,0.06), 0 6px 20px rgba(18,24,26,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1113;
+      --surface: #161c1e;
+      --surface-2: #101516;
+      --ink: #eef3f3;
+      --ink-muted: #93a3a6;
+      --ink-faint: #647274;
+      --border: #263133;
+      --accent: #38c1c8;
+      --accent-soft: #17383b;
+      --accent-strong: #6fe0e6;
+      --good: #63b98a;
+      --warning: #d9a84f;
+      --critical: #e2705a;
+      --critical-soft: #3a2320;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 10px 30px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1113;
+    --surface: #161c1e;
+    --surface-2: #101516;
+    --ink: #eef3f3;
+    --ink-muted: #93a3a6;
+    --ink-faint: #647274;
+    --border: #263133;
+    --accent: #38c1c8;
+    --accent-soft: #17383b;
+    --accent-strong: #6fe0e6;
+    --good: #63b98a;
+    --warning: #d9a84f;
+    --critical: #e2705a;
+    --critical-soft: #3a2320;
+    --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 10px 30px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace; }
+
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+  }
+
+  header.page {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(26px, 4vw, 34px);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .asof {
+    color: var(--ink-muted);
+    font-size: 13px;
+  }
+  .asof .mono { color: var(--ink-faint); }
+
+  /* stat row */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .stat .label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .stat .value {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .stat .sub {
+    font-size: 12px;
+    color: var(--ink-muted);
+    margin-top: 4px;
+  }
+  .stat .sub.up { color: var(--warning); }
+
+  section.panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 24px 20px;
+    box-shadow: var(--shadow);
+    margin-bottom: 24px;
+  }
+  .panel h2 {
+    margin: 0 0 4px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .panel .desc {
+    color: var(--ink-muted);
+    font-size: 13px;
+    margin: 0 0 20px;
+    max-width: 62ch;
+  }
+
+  /* bar chart */
+  .bar-row {
+    display: grid;
+    grid-template-columns: 150px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    height: 30px;
+  }
+  .bar-row + .bar-row { margin-top: 6px; }
+  .bar-name {
+    font-size: 13px;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .bar-track {
+    position: relative;
+    height: 16px;
+    background: var(--surface-2);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: var(--accent);
+    border-radius: 4px;
+    min-width: 4px;
+  }
+  .bar-meta {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12px;
+    color: var(--ink-muted);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .bar-meta b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .bar-tip {
+    position: relative;
+  }
+  .bar-tip:hover .tooltip { opacity: 1; transform: translateY(-4px); pointer-events: auto; }
+  .tooltip {
+    position: absolute;
+    left: 0;
+    bottom: 100%;
+    margin-bottom: 6px;
+    background: var(--ink);
+    color: var(--bg);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    padding: 6px 9px;
+    border-radius: 6px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    z-index: 5;
+    box-shadow: var(--shadow);
+  }
+
+  /* scatter */
+  .scatter-wrap { width: 100%; overflow-x: auto; }
+  svg.scatter { display: block; width: 100%; height: auto; }
+  .axis-label {
+    fill: var(--ink-faint);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+  }
+  .axis-title {
+    fill: var(--ink-muted);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+  }
+  .gridline { stroke: var(--border); stroke-width: 1; }
+  .refline { stroke: var(--ink-faint); stroke-width: 1; stroke-dasharray: 3 4; }
+  .quad-label {
+    fill: var(--ink-faint);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .pt { fill: var(--accent); fill-opacity: 0.82; stroke: var(--surface); stroke-width: 1.5; cursor: default; }
+  .pt.flag { fill: var(--critical); fill-opacity: 0.9; stroke: var(--critical); }
+  .pt-label { fill: var(--ink); font-size: 11px; font-weight: 500; }
+  .pt-label.muted { fill: var(--ink-muted); }
+
+  .flag-note {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 16px;
+    padding: 10px 14px;
+    background: var(--critical-soft);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .flag-note .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--critical);
+    display: inline-block;
+    flex: none;
+  }
+  .flag-note b { color: var(--critical); }
+
+  footer.page {
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    color: var(--ink-faint);
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media (max-width: 560px) {
+    .bar-row { grid-template-columns: 96px 1fr auto; }
+    .bar-name { font-size: 12px; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <span class="eyebrow">Blend &middot; NFT-Collateral Lending</span>
+    <h1>Market Pulse</h1>
+    <p class="asof">Snapshot as of <span class="mono" id="asof-time">—</span> &middot; all lenders, all open liens</p>
+  </header>
+
+  <div class="stats" id="stats"></div>
+
+  <section class="panel">
+    <h2>Market Rate by Collection</h2>
+    <p class="desc">Median APY on currently open loans, for the 10 collections with the deepest open-loan books. Bar length is the rate a lender should expect to originate at today; the number at right also carries loan count and ETH locked.</p>
+    <div id="bar-chart"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Rate vs. 30-Day Seize Risk</h2>
+    <p class="desc">Each point is a collection: rate paid (x) against the share of its trailing-30-day closes that ended in seizure rather than repayment (y). Bubble size is open-loan depth. Dashed lines mark the market-wide medians — the lower-right quadrant is where rate is paid without matching risk.</p>
+    <div class="scatter-wrap">
+      <svg class="scatter" id="scatter" viewBox="0 0 960 560" role="img" aria-label="Scatter plot of median APY versus 30-day seize rate by collection"></svg>
+    </div>
+    <div class="flag-note" id="flag-note" hidden>
+      <span class="dot"></span>
+      <span><b id="flag-name"></b> — <span id="flag-detail"></span></span>
+    </div>
+  </section>
+
+  <footer class="page">
+    <span>Source: Blend subgraph (all lenders) &middot; The Graph</span>
+    <span class="mono">blend-market-summary-dashboard</span>
+  </footer>
+</div>
+
+<script>
+  /* ============================================================
+     DATA — the ONLY block a redeploy should ever edit.
+     Everything below this block is fixed layout/rendering logic;
+     don't touch it when patching in a fresh run's numbers.
+     ============================================================ */
+
+  const stats = {
+    openCount: 2248, activeCount: 2203, auctionCount: 45,
+    medianEth: 0.385, medianUsd: 966, ethUsdPrice: 2510.09,
+    marketMedianApy: 14.00,
+    given24hApy: 14.80, apyTrendDelta: 0.80
+  };
+
+  const chart1 = [
+    { collection: "Pudgy Penguins", medianApy: 12.6, openLoans: 331, ethLocked: 951.98 },
+    { collection: "Lil Pudgys", medianApy: 14.4, openLoans: 313, ethLocked: 97.96 },
+    { collection: "Azuki", medianApy: 11.45, openLoans: 266, ethLocked: 153.37 },
+    { collection: "Redacted Remilio Babies", medianApy: 13.69, openLoans: 223, ethLocked: 23.79 },
+    { collection: "CloneX", medianApy: 13.84, openLoans: 214, ethLocked: 32.96 },
+    { collection: "Doodles", medianApy: 14.7, openLoans: 204, ethLocked: 41.85 },
+    { collection: "Mutant Ape Yacht Club", medianApy: 14.54, openLoans: 182, ethLocked: 131.89 },
+    { collection: "Milady Maker", medianApy: 14.8, openLoans: 164, ethLocked: 121.17 },
+    { collection: "Bored Ape Yacht Club", medianApy: 9.9, openLoans: 139, ethLocked: 586.51 },
+    { collection: "DeGods", medianApy: 22.5, openLoans: 88, ethLocked: 19.71 }
+  ];
+
+  const chart2 = [
+    { collection: "CloneX", medianApy: 13.84, seizeRatePct: 7.14, openLoans: 214 },
+    { collection: "Lil Pudgys", medianApy: 14.4, seizeRatePct: 7.61, openLoans: 313 },
+    { collection: "Milady Maker", medianApy: 14.8, seizeRatePct: 4.8, openLoans: 164 },
+    { collection: "Mutant Ape Yacht Club", medianApy: 14.54, seizeRatePct: 6.45, openLoans: 182 },
+    { collection: "Doodles", medianApy: 14.7, seizeRatePct: 2.92, openLoans: 204 },
+    { collection: "Bored Ape Yacht Club", medianApy: 9.9, seizeRatePct: 7.02, openLoans: 139 },
+    { collection: "Pudgy Penguins", medianApy: 12.6, seizeRatePct: 2.24, openLoans: 331 },
+    { collection: "Redacted Remilio Babies", medianApy: 13.69, seizeRatePct: 15.15, openLoans: 223 },
+    { collection: "Azuki", medianApy: 11.45, seizeRatePct: 8.07, openLoans: 266 }
+  ];
+
+  const marketMedianApy = stats.marketMedianApy;
+  const marketSeizeRate = 5.46;
+  const now_unix = 1788964992;
+
+  /* ============================================================
+     RENDER — fixed, don't edit on a redeploy.
+     ============================================================ */
+
+  document.getElementById('asof-time').textContent = new Date(now_unix * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium', timeStyle: 'short'
+  });
+
+  // ---------- Stat tiles ----------
+  const statsHost = document.getElementById('stats');
+  const trendSign = stats.apyTrendDelta >= 0 ? '+' : '';
+  statsHost.innerHTML = `
+    <div class="stat">
+      <div class="label">Open Loans</div>
+      <div class="value">${stats.openCount.toLocaleString()}</div>
+      <div class="sub">${stats.activeCount.toLocaleString()} active &middot; ${stats.auctionCount.toLocaleString()} in auction</div>
+    </div>
+    <div class="stat">
+      <div class="label">Median Loan Value</div>
+      <div class="value">${stats.medianEth.toFixed(3)} ETH</div>
+      <div class="sub">&asymp; $${stats.medianUsd.toLocaleString()} at $${stats.ethUsdPrice.toLocaleString()}/ETH</div>
+    </div>
+    <div class="stat">
+      <div class="label">Market Median APY</div>
+      <div class="value">${stats.marketMedianApy.toFixed(2)}%</div>
+      <div class="sub">across every open lien</div>
+    </div>
+    <div class="stat">
+      <div class="label">24h Rate Trend</div>
+      <div class="value">${stats.given24hApy.toFixed(2)}%</div>
+      <div class="sub up">${trendSign}${stats.apyTrendDelta.toFixed(2)} pts vs. open-book median</div>
+    </div>
+  `;
+
+  // ---------- Bar chart ----------
+  const barHost = document.getElementById('bar-chart');
+  const maxApy = Math.max(...chart1.map(d => d.medianApy));
+  chart1.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    const pct = (d.medianApy / maxApy) * 100;
+    row.innerHTML = `
+      <div class="bar-name" title="${d.collection}">${d.collection}</div>
+      <div class="bar-tip">
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="tooltip">${d.openLoans} open loans &middot; ${d.ethLocked.toFixed(1)} ETH locked</div>
+      </div>
+      <div class="bar-meta"><b>${d.medianApy.toFixed(2)}%</b></div>
+    `;
+    barHost.appendChild(row);
+  });
+
+  // ---------- Scatter ----------
+  const svg = document.getElementById('scatter');
+  const W = 960, H = 560;
+  const M = { top: 30, right: 40, bottom: 56, left: 60 };
+  const plotW = W - M.left - M.right;
+  const plotH = H - M.top - M.bottom;
+
+  const xMax = Math.ceil(Math.max(...chart2.map(d => d.medianApy)) / 2) * 2 + 2;
+  const xMin = Math.floor(Math.min(...chart2.map(d => d.medianApy)) / 2) * 2 - 2;
+  const yMax = Math.ceil(Math.max(...chart2.map(d => d.seizeRatePct)) / 2) * 2 + 2;
+  const yMin = 0;
+
+  const xScale = v => M.left + ((v - xMin) / (xMax - xMin)) * plotW;
+  const yScale = v => M.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  const maxDepth = Math.max(...chart2.map(d => d.openLoans));
+  const rScale = v => 8 + Math.sqrt(v / maxDepth) * 26;
+
+  const ns = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs) {
+    const e = document.createElementNS(ns, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    return e;
+  }
+
+  // gridlines + axis ticks
+  for (let v = Math.ceil(xMin / 4) * 4; v <= xMax; v += 4) {
+    const x = xScale(v);
+    svg.appendChild(el('line', { class: 'gridline', x1: x, x2: x, y1: M.top, y2: M.top + plotH }));
+    const t = el('text', { class: 'axis-label', x, y: M.top + plotH + 20, 'text-anchor': 'middle' });
+    t.textContent = v + '%';
+    svg.appendChild(t);
+  }
+  for (let v = yMin; v <= yMax; v += 4) {
+    const y = yScale(v);
+    svg.appendChild(el('line', { class: 'gridline', x1: M.left, x2: M.left + plotW, y1: y, y2: y }));
+    const t = el('text', { class: 'axis-label', x: M.left - 10, y: y + 4, 'text-anchor': 'end' });
+    t.textContent = v + '%';
+    svg.appendChild(t);
+  }
+
+  // axis titles
+  const xt = el('text', { class: 'axis-title', x: M.left + plotW / 2, y: H - 10, 'text-anchor': 'middle' });
+  xt.textContent = 'MEDIAN APY (OPEN LOANS)';
+  svg.appendChild(xt);
+  const yt = el('text', { class: 'axis-title', x: -(M.top + plotH / 2), y: 18, 'text-anchor': 'middle', transform: 'rotate(-90)' });
+  yt.textContent = 'SEIZE RATE, TRAILING 30D';
+  svg.appendChild(yt);
+
+  // reference lines at market medians
+  const rx = xScale(marketMedianApy);
+  const ry = yScale(marketSeizeRate);
+  svg.appendChild(el('line', { class: 'refline', x1: rx, x2: rx, y1: M.top, y2: M.top + plotH }));
+  svg.appendChild(el('line', { class: 'refline', x1: M.left, x2: M.left + plotW, y1: ry, y2: ry }));
+
+  const ql = el('text', { class: 'quad-label', x: M.left + plotW - 6, y: M.top + plotH - 10, 'text-anchor': 'end' });
+  ql.textContent = 'higher rate, lower risk →';
+  svg.appendChild(ql);
+
+  // points, sorted so larger bubbles draw first (smaller on top, stay clickable/visible)
+  const sorted = [...chart2].sort((a, b) => b.openLoans - a.openLoans);
+  const flagged = chart2.reduce((a, b) => (a.seizeRatePct > b.seizeRatePct ? a : b));
+
+  sorted.forEach(d => {
+    const cx = xScale(d.medianApy);
+    const cy = yScale(d.seizeRatePct);
+    const r = rScale(d.openLoans);
+    const isFlag = d.collection === flagged.collection;
+    svg.appendChild(el('circle', { class: 'pt' + (isFlag ? ' flag' : ''), cx, cy, r }));
+
+    const label = el('text', {
+      class: 'pt-label' + (isFlag ? '' : ' muted'),
+      x: cx,
+      y: cy - r - 6,
+      'text-anchor': 'middle'
+    });
+    label.textContent = d.collection;
+    svg.appendChild(label);
+  });
+
+  document.getElementById('flag-name').textContent = flagged.collection;
+  document.getElementById('flag-detail').textContent =
+    `${flagged.seizeRatePct.toFixed(1)}% of its trailing-30-day closes ended in seizure, the highest of any collection with an active market — its ${flagged.medianApy.toFixed(2)}% median rate is not obviously compensating for that.`;
+  document.getElementById('flag-note').hidden = false;
+</script>

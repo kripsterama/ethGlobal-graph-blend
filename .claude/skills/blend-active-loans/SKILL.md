@@ -151,7 +151,7 @@ address, narrow the query to just those instead of returning everything:
    curl -s "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
    ```
 
-   Current block, needed for the auction countdown in step 4a, also keyless:
+   Current block, needed for the auction countdown in step 4, also keyless:
 
    ```bash
    curl -s -X POST https://ethereum.publicnode.com -H "Content-Type: application/json" \
@@ -159,26 +159,32 @@ address, narrow the query to just those instead of returning everything:
    # result is hex — convert to decimal before using
    ```
 
-4. **Compute the derived fields for all N loans in a single script
-   execution** (one Python/Node/etc. call that loops over every loan and
-   prints the finished rows), not N separate tool calls. This is the same
-   fix as step 3's timezone note, generalized: anything that's the same
-   operation repeated per loan belongs in one batched call, not one call per
-   loan — each extra tool-call round trip costs real wall-clock time
-   (sandbox overhead, model turnaround) far beyond the trivial arithmetic
-   itself, and is the actual reason a 19-loan run took ~3 minutes rather
-   than a few seconds.
+4. **One script computes every loan's fields AND prints the finished,
+   ready-to-paste markdown output directly** — the table, the totals
+   section, and the notable-conditions callouts (high LTV, in-auction,
+   excluded outliers) all as plain text the script writes to stdout. This is
+   the single biggest lever on this skill's latency: LLM generation time
+   scales with how much text the *model* has to compose, so the more of the
+   table/flag/totals text that comes verbatim out of a deterministic script
+   instead of being independently reasoned about and narrated afterward, the
+   faster and more reliably correct the result. After this script runs, the
+   agent's job is to paste its output (with at most a one-line intro), not
+   to re-derive or re-describe what it already printed. It also structurally
+   fixes a recurring bug in earlier versions of this skill (columns like
+   Collection/tokenId/Lender silently dropped across iterations) — a
+   deterministic script that always builds the same column list every time
+   can't "forget" a column the way reconstructing a table from memory could.
 
-   Using `interestStartTimestamp` (not `createdAtTimestamp` — they diverge
-   after a refinance) as the accrual basis. `rate` (bips) is itself the
-   quoted annual rate — convert directly to a percent, don't run it through
-   an exponential transform. Debt/gains growth over time, however, *is*
-   continuously compounded (confirmed against the actual Blend contract
-   source, `Helpers.computeCurrentDebt`). Monthly/annual figures are
-   **forward-looking projections** — the interest that would accrue over the
-   *next* month/year if the loan's current principal and rate held constant
-   for that whole period, not a historical figure. `issued_at` uses the
-   local timezone detected once in step 3 — don't re-detect it here:
+   Column order, fixed: Lien ID, **Collection (name) + NFT token ID** (right
+   after Lien ID — never drop for space), Loan Amount (ETH), **LTV %** (right
+   after loan amount), APY %, **Status**, Gains to Date (ETH/USD), Monthly
+   Forecast (ETH/USD), Annual Forecast (ETH/USD), Lender address, Issued
+   (date/time).
+
+   Per-loan math the script performs, using `interestStartTimestamp` (not
+   `createdAtTimestamp` — they diverge after a refinance) as the accrual
+   basis, and the timezone/price/block values fetched once in step 3 (not
+   re-fetched here):
 
    ```
    loan_eth       = loanAmount / 1e18
@@ -187,104 +193,74 @@ address, narrow the query to just those instead of returning everything:
    years_elapsed  = (now_unix - interestStartTimestamp) / (365 * 86400)
    gains_to_date_eth = loan_eth * (e^(rate/10000 * years_elapsed) - 1)
    monthly_eth    = loan_eth * (e^(rate/10000 * (1/12)) - 1)
-   annual_eth     = loan_eth * (e^(rate/10000) - 1)
-
+   annual_eth     = loan_eth * (e^(rate/10000) - 1)          # forward-looking: what next
+                                                              # year would accrue at current
+                                                              # terms, not a historical figure
    gains_to_date_usd = gains_to_date_eth * eth_usd_price
    monthly_usd       = monthly_eth * eth_usd_price
    annual_usd        = annual_eth * eth_usd_price
-
-   issued_at      = createdAtTimestamp converted using the local timezone
-                    already detected once in step 3 (don't re-detect it
-                    per loan, and don't assume UTC or hardcode a zone)
+   issued_at      = createdAtTimestamp converted using the local timezone from step 3
    ```
 
-   `ltv_pct` uses the specific NFT's *collection* floor as a stand-in for
-   that exact token's value (the practical, available metric — not what the
-   original loan offer's oracle price was, which isn't retrievable after the
-   fact). A high LTV (loan close to or above current floor) signals a
-   position that's underwater or close to it; worth calling out in prose if
-   any loan's LTV is notably high (e.g. > 80-90%), not just leaving it as a
-   number in the table.
+   `rate` is itself the quoted annual rate (bips -> percent is a direct
+   divide, never an exponential transform) even though debt/gains growth
+   over time *is* continuously compounded — confirmed against the actual
+   Blend contract source, `Helpers.computeCurrentDebt`. `ltv_pct` uses the
+   NFT's *collection* floor as a stand-in for that exact token's value (the
+   practical, available metric, not the original loan offer's oracle price,
+   which isn't retrievable after the fact). Do this arithmetic with a real
+   calculator (Python's `math.exp`, not mental math) — the exponential is
+   easy to get meaningfully wrong by hand, especially at higher rates.
 
-   Do this arithmetic with a real calculator (e.g. `python3 -c "import math; ..."`)
-   rather than approximating by hand — the exponential is easy to get
-   meaningfully wrong via mental math, especially at higher rates.
-
-4a. **For `IN_AUCTION` loans, compute a status/countdown, and don't skip
-   them just because they're not `ACTIVE`.** A lender exits a position via
-   `startAuction`, which starts a race, not a close: the borrower can repay,
-   a new lender can refinance them out, or — only once the window fully
-   elapses with neither happening — the original lender can `seize` the
-   collateral. All the financial columns (LTV, APY, gains, monthly/annual)
-   still apply unchanged; interest keeps accruing on the original terms
-   during an auction (confirmed in source — `startAuction` carries
-   `lien.startTime` through unchanged).
-
-   **`auctionDuration` is a block count, not seconds** — confirmed against
-   the contract source (`Helpers.calcRefinancingAuctionRate` computes its
-   rate curve explicitly "per block," comparing `block.number - startBlock`
-   against fractions of `auctionDuration`) and empirically (a real lien's
-   `auctionDuration: 9000` matches a lender-described "30 hour window"
-   exactly at ~12 sec/block: `9000 * 12 / 3600 = 30`). Treating it as
-   seconds would be wrong by a factor of ~300.
+   `Status`, for `IN_AUCTION` loans — don't skip these just because they're
+   not `ACTIVE`; a lender exiting via `startAuction` starts a race (borrower
+   repays, or a new lender refinances them out, or the window elapses and
+   the original lender can `seize`), not a close. All the financial columns
+   above still apply unchanged during an auction (contract source confirms
+   `startAuction` leaves `lien.startTime` untouched, so interest keeps
+   accruing on the original terms):
 
    ```
    deadline_block    = auctionStartBlock + auctionDuration
-   remaining_blocks  = deadline_block - current_block
-   remaining_hours   = remaining_blocks * 12 / 3600     # ~12 sec/block, post-merge
+   remaining_blocks  = deadline_block - current_block          # current_block from step 3
+   remaining_hours   = remaining_blocks * 12 / 3600             # ~12 sec/block, post-merge
 
-   status_display:
-     remaining_blocks > 0  -> "AUCTION — {remaining_hours}h remaining"
-     remaining_blocks <= 0 -> "AUCTION — window elapsed, seizable now"
+   status:
+     ACTIVE                             -> "ACTIVE"
+     IN_AUCTION, remaining_blocks > 0   -> "AUCTION — {remaining_hours}h remaining"
+     IN_AUCTION, remaining_blocks <= 0  -> "AUCTION — window elapsed, seizable now"
    ```
 
-5. **Watch for extreme-rate outliers before presenting an annual total.**
-   Blend's refinancing-auction rate can spike as high as 100,000 bips
-   (1000% APY) as a loan nears liquidation with no refinancer. Continuous
-   compounding turns that into an absurd-looking annual figure for a single
-   small loan (e.g. a 0.3 ETH loan at 999% APY projects to ~6,500 ETH/year)
-   that no real loan will actually survive to see, since it'd get
-   refinanced/repaid/seized long before a year passes at that rate. This
-   does not apply to gains-to-date or monthly figures, which stay small even
-   at extreme rates over short spans — only annual needs this treatment.
+   **`auctionDuration` is a block count, not seconds** — confirmed against
+   the contract source (`Helpers.calcRefinancingAuctionRate` computes its
+   rate curve explicitly "per block") and empirically (a real lien's
+   `auctionDuration: 9000` matched a lender-described "30 hour window"
+   exactly at ~12 sec/block: `9000 * 12 / 3600 = 30`). Treating it as
+   seconds would be wrong by a factor of ~300.
 
-   **The Totals row/section always leads with numbers that make sense
-   totalled** — never a sum dominated by one pathological outlier such that
-   the total doesn't represent the portfolio. If any loan's `apy_pct` is
-   unrealistically high (rule of thumb: > 100%), exclude it from the primary
-   annual total by default, and list it separately with its own individual
-   annual figure right next to (not buried below) the totals section — don't
-   present the outlier-inflated sum as the headline number with the sane one
-   as an afterthought.
+   **Totals, computed by the same script, from the full result set** (not
+   just a printed sample — see below): sum of gains-to-date, monthly
+   forecast, and annual forecast, each in both ETH and USD. The totals
+   section always leads with a number that makes sense totalled — never a
+   sum dominated by one pathological outlier. Blend's refinancing-auction
+   rate can spike as high as 100,000 bips (1000% APY) near liquidation, and
+   continuous compounding turns that into an absurd single-loan annual
+   figure (a real 0.3 ETH loan at 999% APY projects to ~6,500 ETH/year) that
+   no loan actually survives to see. So: any loan with `apy_pct` > 100 is
+   excluded from the primary annual total by default, and the script prints
+   it separately with its own individual annual figure — never silently
+   folded into the headline sum. Gains-to-date and monthly figures don't
+   need this treatment; they stay small even at extreme rates over short
+   spans.
 
-6. **Present as a table**, one row per loan, columns in this order: Lien ID,
-   **Collection (name) + NFT token ID** (always, right after Lien ID — never
-   drop these for space), Loan Amount (ETH), **LTV %** (right after loan
-   amount), APY %, **Status** (`ACTIVE`, or the auction countdown string
-   from step 4a), Gains to Date (ETH/USD), Monthly Forecast (ETH/USD),
-   Annual Forecast (ETH/USD), Lender address, Issued (date/time). If there
-   are more matching loans than are reasonable to print (rule of thumb:
-   ~20+), show a representative sample (e.g. the N largest by loan size)
-   rather than every row — but say so explicitly (total count, what the
-   sample was sorted/limited by) rather than quietly truncating, and compute
-   the **totals section from the full result set**, not just the printed
-   sample. If any loan is `IN_AUCTION`, call it out in prose too (not just
-   in the table), since it's an active, time-sensitive decision point for
-   the lender — don't let it blend in as just another row.
-
-7. **Add a totals row/section**: sum of gains-to-date, monthly forecast, and
-   annual forecast, each in both ETH and USD, across every matching loan,
-   applying step 5's outlier exclusion to the annual total by default (state
-   how many loans were excluded and why, and list them individually).
-
-8. **Before sending the table, count its columns against step 6's list.**
-   This skill has repeatedly grown new required columns (LTV%, USD, monthly/
-   annual, then had Lender silently dropped in one pass even after being
-   established) — that happened from reconstructing the output by memory
-   instead of checking it against this spec. Literally verify, per column
-   in step 6's ordered list, that it's present in the table about to be
-   shown. Missing one is a correctness bug in this skill's output, not a
-   trivial formatting choice.
+   **Large result sets:** if there are more matching loans than reasonable
+   to print (rule of thumb: ~20+), the script prints a representative
+   sample (e.g. the N largest by loan size) rather than every row, but
+   states the total count and what the sample was limited by — never a
+   silent truncation — while still computing totals from the *entire*
+   result set. Any `IN_AUCTION` loan gets called out by name in the script's
+   printed output too, not just as a table row — it's a live, time-sensitive
+   decision point for the lender.
 
 ## Notes
 

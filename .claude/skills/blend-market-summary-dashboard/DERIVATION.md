@@ -223,25 +223,21 @@ subgraph schema. This is a pure aggregation use case: same underlying data,
 different query shape (bulk fetch + client-side grouping/ranking instead of
 a filtered per-loan list).
 
-## Delivery — plain-text email, no charts, no HTML
+## Delivery — persistent web dashboard artifact, not an email
 
-The skill sends a **plain-text** email using data already computed above (no
-new queries, no additional rendering step): the same fixed-width text grid
-output from step 6 becomes the email body verbatim. No chart images, no
-HTML authoring, no attachments.
+The skill publishes a two-chart dashboard using data already computed above
+(no new queries): a bar chart of `median_apy_by_collection` for
+`top10_by_depth`, and a scatter/bubble chart plotting
+`median_apy_by_collection` against `seize_rate_pct_by_collection` (bubble
+size = `open_count_by_collection`) for collections present in both
+`top10_by_depth` and `top10_by_30d_closes` — the risk-adjusted-return view
+that this whole use case exists to support.
 
-This was a deliberate simplification after an earlier HTML-email version
-(matplotlib-rendered PNG charts, inline-attachment Content-ID references,
-hand-authored email-safe `<table>` markup) turned out to be slow and
-fragile in practice — that version bundled two heavy, loosely-specified
-generative sub-tasks (chart rendering + full HTML authoring) into one step
-with no fixed script to mechanically produce the output, unlike every other
-step in this skill. Plain text removes the entire problem: nothing to
-render, nothing to verify visually, one format that serves both the chat
-reply and the email body. If charts/visualization are wanted, use the
-sibling skill `blend-market-summary-dashboard` instead, which publishes a
-persistent interactive web dashboard (a better fit for charts than email
-ever was, since it doesn't fight email-client HTML/CSS restrictions). See
-`SKILL.md` step 7 for the full send instructions, including the
-default-to-draft behavior (a new automated send shouldn't be the silent
-default before a human has reviewed one).
+Published once and **redeployed to the same link on every run** (the URL is
+saved as a `reference` memory after the first publish), rather than a new
+artifact per invocation, so the dashboard is a stable bookmark that always
+reflects the latest data. There is a sibling skill, `blend-market-summary`,
+that delivers the same underlying data as an HTML email with static PNG
+charts instead — use that one when the ask is specifically to be emailed the
+report rather than shown/linked a dashboard. See `SKILL.md` step 7 for the
+full publish/redeploy instructions.

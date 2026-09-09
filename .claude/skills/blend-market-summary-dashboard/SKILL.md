@@ -1,5 +1,5 @@
 ---
-name: blend-market-summary
+name: blend-market-summary-dashboard
 description: >-
   Query the Blend subgraph for a market-wide snapshot across all lenders:
   open-loan count and median value, per-collection market rate stats
@@ -7,18 +7,17 @@ description: >-
   refinanced/auction-started loans, count and ETH volume) plus the 24h rate
   trend, 24h trending collections by loans given or closed, and a
   trailing-30-day collection risk profile (repaid/seized/sold-locked mix,
-  average time-to-close). Sends the result as a plain-text email (no HTML,
-  no charts) with the data laid out as readable fixed-width text grids. A
-  sibling skill, blend-market-summary-dashboard, publishes the same data as
-  a web dashboard with charts instead — use that one for "show me"/
-  "dashboard"/"link"/"chart" asks. Not a per-loan listing (use
-  blend-active-loans for that). Use for: market summary, how many active
-  Blend loans, median loan size, market rate for a collection, loan activity
-  in the last day, trending collections, default/seizure rate, email me the
-  market report.
+  average time-to-close). Publishes a persistent, interactive two-chart web
+  dashboard (market rate by collection, rate vs. 30-day seize risk)
+  redeployed to the same link every run, rather than an email. Meant as the
+  market-side reference for comparing a wallet's loans against — not a
+  per-loan listing (use blend-active-loans for that). Use for: market
+  summary, how many active Blend loans, median loan size, market rate for a
+  collection, loan activity in the last day, trending collections,
+  default/seizure rate, market dashboard/charts, show me the dashboard.
 ---
 
-# Blend Market Summary
+# Blend Market Summary — Dashboard
 
 Aggregates `Lien` and `LienEvent` data from the Blend subgraph across **all**
 lenders into a market-wide snapshot: open-loan count/median, per-collection
@@ -28,13 +27,13 @@ collections, and a trailing-30-day collection risk profile. See
 reasoning behind these definitions — this skill just executes that end to
 end.
 
-**Delivery is a plain-text email — no HTML, no charts, no attachments.**
-This is a deliberate simplification: no chart-rendering step, no
-email-client-safe HTML authoring, no inline-attachment/Content-ID handling —
-just the same computed data laid out as fixed-width text grids, sent as the
-email body verbatim. Don't build charts, don't write HTML, and don't publish
-an Artifact for this skill. (The sibling skill
-`blend-market-summary-dashboard` covers the charts/dashboard case instead.)
+**Delivery is a published, interactive web dashboard artifact, not an
+email.** Two charts (live SVG/JS, hover tooltips) on one page, redeployed to
+the same URL every run so the link is a stable bookmark that always shows
+the latest data. There is a sibling skill, `blend-market-summary` (email
+delivery, static PNG charts) — use that one instead if the user specifically
+asks to be emailed the report; this one is for "show me," "dashboard," or
+"link" requests.
 
 **Purpose beyond the raw numbers:** this data is meant to be the market-side
 reference a specific wallet's loans get compared against later (is this
@@ -82,16 +81,10 @@ row-per-loan table here. For that, point the user at `blend-active-loans`.
   (`api.coingecko.com/api/v3/nfts/ethereum/contract/<address>`), same primary
   source `blend-active-loans` uses. No floor price/LTV needed here, so only
   the `name` field matters.
-- **Email recipient:** check memory first for a saved recipient address
-  (`reference` memory, e.g. `blend_market_summary_email_recipient`) before
-  asking the user. If the invocation names a different address explicitly,
-  use that instead for this run without overwriting the saved default.
-- **Send vs. draft:** default to creating a Gmail **draft**
-  (`mcp__claude_ai_Gmail__create_draft`) rather than sending immediately
-  (`mcp__claude_ai_Gmail__send_message`), unless the user has said (in this
-  invocation or a saved `feedback` memory) that this report should send
-  automatically — an unattended send is a real, visible action and shouldn't
-  be the silent default for a new report the user hasn't reviewed once yet.
+- **Dashboard artifact URL:** check memory first for a saved artifact URL
+  (`reference` memory, e.g. `blend_market_summary_dashboard_url`) before
+  publishing — this is a persistent, redeployed dashboard, not a new
+  artifact per run. See step 7 for the found/not-found flow.
 
 ## Steps
 
@@ -238,22 +231,13 @@ curl -s -X POST <endpoint> \
    the returned string) if CoinGecko 404s, falling back further to the raw
    collection address if both fail.
 
-6. **One script computes everything AND prints the finished, ready-to-use
-   text output directly** — same latency rationale as `blend-active-loans`
-   step 4: the more of the output that comes verbatim out of a deterministic
-   script instead of being independently narrated afterward, the faster and
-   more reliably correct the result. After this script runs, the agent's job
-   is to use its output (at most a one-line intro), not re-derive or
-   re-describe what it already printed.
-
-   **Print plain, fixed-width text — space-padded columns, not markdown `|`
-   tables.** This output serves two purposes at once: it's what gets pasted
-   into the chat reply, and it's *also*, verbatim, the plain-text email body
-   in step 7 — one format, no separate reshaping step for the email. Align
-   columns with padding (e.g. Python f-string width specifiers) so it reads
-   as a grid in a fixed-width font; a header row plus a `-`-rule line under
-   it is fine, markdown pipe syntax is not (it renders as literal `|`
-   characters in a plain-text email, not a table).
+6. **One script computes everything AND prints the finished, ready-to-paste
+   markdown output directly** — same latency rationale as
+   `blend-active-loans` step 4: the more of the output that comes verbatim
+   out of a deterministic script instead of being independently narrated
+   afterward, the faster and more reliably correct the result. After this
+   script runs, the agent's job is to paste its output (at most a one-line
+   intro), not re-derive or re-describe what it already printed.
 
    Computations, using queries A/B/C's full result sets (all pages, not a
    sample):
@@ -332,43 +316,84 @@ curl -s -X POST <endpoint> \
      2's `now_unix`).
    - **Open Loans** — `open_count` (broken out `active_count` /
      `auction_count`), `median_eth` (+ `median_usd`), `market_median_apy`.
-   - **Market Rates by Collection** — grid of `top10_by_depth`: Collection,
+   - **Market Rates by Collection** — table of `top10_by_depth`: Collection,
      Open Loans, ETH Locked, Median APY, Min–Max APY. State the total number
-     of distinct collections with an open loan, since this grid is a
+     of distinct collections with an open loan, since this table is a
      depth-ranked slice, not the full set.
-   - **Activity (last 24h)** — a grid with a **Count** and **Total ETH**
-     column for each row: New Loans, Repaid, Seized, Sold-Locked, **Closed
-     (total)**, Refinanced, Entered Auction. Follow immediately with the
-     rate-trend line: `median_apy_given_24h` vs. `market_median_apy` (with
-     the delta, or "N/A" if no loans were given in the window).
-   - **Trending Collections (last 24h)** — two small grids: top 5 by loans
+   - **Activity (last 24h)** — a small table with a **Count** and **Total
+     ETH** column for each row: New Loans, Repaid, Seized, Sold-Locked,
+     **Closed (total)**, Refinanced, Entered Auction. Follow immediately with
+     the rate-trend line: `median_apy_given_24h` vs. `market_median_apy`
+     (with the delta, or "N/A" if no loans were given in the window).
+   - **Trending Collections (last 24h)** — two small tables: top 5 by loans
      given (collection name, count, average loan size in ETH — computed from
      the same `given` events' `loanAmount`s, not the collection's full
      open-loan book — and that collection's `median_apy_given_24h` if it has
      one) and top 5 by loans closed (collection name, count). If a metric has
      zero events in the window, say so explicitly rather than printing an
-     empty grid.
+     empty table.
    - **Collection Risk Profile (trailing 30 days)** — lead with the
      market-wide headline line (`market_closed_30d` closes: repaid/seized/
      sold-locked % split, `market_avg_time_to_close_days`), then the
-     `top10_by_30d_closes` grid: Collection, Closed Loans, Repaid %,
+     `top10_by_30d_closes` table: Collection, Closed Loans, Repaid %,
      Seized %, Sold-Locked %, Avg Time to Close (days). State the total
      distinct collections represented in the 30d window, same "this is a
-     ranked slice" framing as the depth grid.
+     ranked slice" framing as the depth table.
 
-7. **Send or draft the email**, reusing step 6's printed text verbatim as
-   the body — no chart rendering, no HTML authoring, no attachments. This is
-   the entire delivery step:
+7. **Publish the two-chart dashboard artifact**, reusing the exact same
+   `top10_by_depth` / `top10_by_30d_closes` data (and resolved names) from
+   steps 5-6 — no new queries or lookups needed for this step.
 
-   - Pass step 6's text output directly as the Gmail tool's `body` field
-     (plain text), not `htmlBody`. Don't reformat, re-summarize, or
-     regenerate it — the same text that went to chat is the email.
-   - **Recipient and send-vs-draft:** per the Configuration section above —
-     check memory for a saved recipient, default to creating a Gmail draft
-     (`mcp__claude_ai_Gmail__create_draft`) rather than sending
-     (`mcp__claude_ai_Gmail__send_message`) unless told otherwise.
-   - Subject line: something scannable and dated, e.g. "Blend Market
-     Summary — 2026-09-09".
+   **This only means designing from scratch on the very first publish.** On
+   every later run (the "Found" branch below), read the existing artifact
+   and patch its embedded data in place — the chart datasets (two small
+   arrays), the four stat-tile values, and the as-of timestamp — reusing its
+   existing HTML/CSS/JS structure verbatim. Don't invoke `dataviz` or
+   `artifact-design` or redesign anything on a redeploy; that's how the
+   dashboard stays visually stable across runs instead of drifting.
+
+   **First publish only** — before writing any chart or artifact code,
+   invoke the `dataviz` skill (via the `Skill` tool) for chart/color
+   guidance and the `artifact-design` skill for artifact fundamentals, both
+   required loads before writing chart code or publishing an artifact for
+   the first time.
+
+   - **Chart 1 — Market Rate by Collection.** Bar chart, one bar per
+     collection in `top10_by_depth`. X = collection name, Y =
+     `median_apy_by_collection` (%). Include `open_count_by_collection` and
+     `eth_locked_by_collection` in each bar's tooltip/label for context.
+   - **Chart 2 — Rate vs. Risk by Collection.** Scatter/bubble chart. X =
+     `median_apy_by_collection` (%), Y = `seize_rate_pct_by_collection` (30d,
+     %), bubble radius scaled by `open_count_by_collection`. Only plot
+     collections that have **both** metrics — i.e. the intersection of
+     `top10_by_depth` and `top10_by_30d_closes` (both already name-resolved
+     in step 5, so this needs no extra API calls). If that intersection has
+     fewer than 3 collections, say so plainly instead of forcing a
+     near-empty chart — don't expand the lookup scope to fill it in.
+
+   Both charts go on one published HTML artifact (two panels, one page).
+
+   **This is a persistent, redeployed dashboard, not a new artifact per
+   run** — check memory first for a saved artifact URL (`reference` memory,
+   e.g. `blend_market_summary_dashboard_url`):
+   - **Found:** read it (`action: "read"`) to get the current published
+     version, then republish to that same `url` after patching in the
+     freshly computed data — the `chart1`/`chart2` arrays, the
+     `marketMedianApy`/`marketSeizeRate` reference-line values, the four
+     stat-tile numbers, and `now_unix`, all inline in the page's `<script>` —
+     leaving everything else (markup, CSS, layout) untouched. The link stays
+     the same across every invocation, always showing the latest run.
+   - **Not found:** publish a new artifact, then save its URL as a
+     `reference` memory so future runs reuse it instead of creating a new
+     link each time.
+
+   Pick a title and favicon once on first publish (e.g. "Blend Market
+   Pulse", 📊) and never change them on later redeploys — per the Artifact
+   tool's own convention, a changed favicon/title reads as a different page
+   to a viewer who bookmarked the link.
+
+   Share the artifact link alongside the pasted markdown from step 6 — the
+   charts are the artifact, don't also try to render them as ASCII/text.
 
 ## Notes
 
@@ -389,10 +414,6 @@ curl -s -X POST <endpoint> \
   repaid or refinanced out in time; it says nothing directly about currently
   open loans' health (that's what LTV would show, deferred per the
   Definitions section above).
-- Each run is a fresh email (or draft) — there's no persistent link to
-  redeploy, so don't check for or reuse a previous email; every invocation
-  composes fresh text and sends/drafts a new message.
-- Defaulting to a draft (per Configuration) means the agent's job after step
-  7 is to confirm the draft was created and hand the user a one-line
-  summary, not to assume it was delivered — say "drafted," not "sent," when
-  that's what happened.
+- The dashboard artifact (step 7) redeploys to the same URL every run —
+  don't publish a fresh artifact each invocation once one exists in memory,
+  that would leave stale, orphaned links behind.

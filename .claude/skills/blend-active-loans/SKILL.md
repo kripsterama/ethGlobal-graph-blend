@@ -102,8 +102,16 @@ address, narrow the query to just those instead of returning everything:
    ```bash
    curl -s -X POST <endpoint> \
      -H "Content-Type: application/json" \
+     -H "User-Agent: Mozilla/5.0" \
      --data '{"query":"..."}'
    ```
+
+   **Always send a `User-Agent` header on this call.** The Studio endpoint
+   has been observed to reject the request outright when curl's default
+   `curl/<version>` User-Agent is used (or none is set) — confirmed by a
+   real run that failed on the first attempt and only succeeded after
+   retrying with `-H "User-Agent: Mozilla/5.0"` added. Include it from the
+   start rather than waiting for a failure to add it.
 
    If there are more than 100 active loans, page through with `skip` (or
    `id_gt` on the last-seen id) until a page comes back empty.
